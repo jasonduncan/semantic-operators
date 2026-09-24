@@ -8,6 +8,7 @@ dependencies = []
 
 [project.optional-dependencies]
 jev = ["typesafe-sdk>=0.7.1"]
+laya = ["laya>=0.3.20"]
 
 [build-system]
 requires = ["hatchling"]

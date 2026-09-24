@@ -30,5 +30,6 @@ with TypeSafeClient() as client:
 
 print(f"Message: {message}\n")
 for name, answer in answers.items():
+    value = f"{answer.value:.2f}" if isinstance(answer.value, float) else repr(answer.value)
     probabilities = ", ".join(f"{k}={p:.2f}" for k, p in answer.probabilities.items())
-    print(f"{name:>13}: {answer.value!r:<12} ({probabilities})")
+    print(f"{name:>13}: {value:<12} ({probabilities})")

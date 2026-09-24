@@ -44,8 +44,9 @@ def _from_jev(question: Question, answer: ts.Answer) -> Answer:
             p = answer.noul
             return Answer(value=p > 0.5, probabilities={"true": p, "false": 1 - p}, raw=answer)
         case Choice():
-            return Answer(value=answer.choice, probabilities=dict(answer.probabilities), raw=answer)
+            probabilities = {option: answer.probabilities[option] for option in question.options}
+            return Answer(value=answer.choice, probabilities=probabilities, raw=answer)
         case Score():
             # Jev keys probabilities by level index (0, 1, 2...); we key them by level text.
-            probabilities = {question.levels[i]: p for i, p in answer.probabilities.items()}
+            probabilities = {level: answer.probabilities[i] for i, level in enumerate(question.levels)}
             return Answer(value=answer.score, probabilities=probabilities, raw=answer)

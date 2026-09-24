@@ -2,8 +2,14 @@
 
 One small interface for **System One models**: fast models that answer structured
 questions about text or data with probabilities, not prose. [Jev](https://typesafe.ai)
-is the first. Clones and competitors are coming, and this library lets you write your
-code once and swap the model underneath.
+was the first; [Laya](https://huggingface.co/convaiinnovations/laya) is an open-weight,
+Jev-compatible alternative you can run locally. More are coming. This library lets you
+write your code once and swap the model underneath.
+
+| Provider | Where it runs | Install |
+|----------|---------------|---------|
+| `providers.jev.Jev`   | TypeSafe's hosted API (needs `TYPESAFE_API_KEY`) | `[jev]`  |
+| `providers.laya.Laya` | on your machine (~800 MB download on first use)  | `[laya]` |
 
 ## The whole idea
 
@@ -16,8 +22,8 @@ answer with probabilities for each. There are three kinds of question:
 | `Choice`  | instructions + named options                  | the chosen option name               |
 | `Score`   | instructions + ordered rubric levels          | expected level as a float, e.g. `1.7` |
 
-Every `Answer` also carries `probabilities` (a dict) and `raw` (the provider's own
-answer object).
+Every `Answer` also carries `probabilities` (a dict, in the question's option/level
+order) and `raw` (the provider's own answer object).
 
 A **provider** is anything with one method:
 
@@ -55,6 +61,22 @@ answers["department"].value           # "billing"
 answers["department"].probabilities   # {"billing": 0.97, "other": 0.03}
 ```
 
+Swapping to Laya changes only how the provider is built:
+
+```python
+import laya
+from semantic_operators.providers.laya import Laya
+
+provider = Laya(laya.load("convaiinnovations/laya"))   # or Laya(laya.Router())
+answers = provider.ask(state, questions)                # same questions, same Answer type
+```
+
+Compare both side by side:
+
+```sh
+uv run --env-file .env --extra jev --extra laya python examples/compare.py
+```
+
 ## Layout
 
 ```
@@ -62,7 +84,9 @@ src/semantic_operators/
   types.py          Boolean, Choice, Score, Answer: our vocabulary
   provider.py       the Provider interface (one method)
   providers/jev.py  translates to/from the TypeSafe SDK
+  providers/laya.py translates to/from the laya package
 examples/hello.py   one real call to Jev
+examples/compare.py the same questions through Jev and Laya
 ```
 
 ## Layers
@@ -80,10 +104,10 @@ own package without changing how it's used.
 ## Rules
 
 - The library never reads API keys or environment variables. You build the client.
-- The core has no dependencies. Each provider's SDK is an optional extra (`[jev]`).
+- The core has no dependencies. Each provider's SDK is an optional extra (`[jev]`, `[laya]`).
 - Our names, not the provider's: `Boolean`, not `noul`.
 
 ## Not here yet (on purpose)
 
-Async, a second provider, benchmarking, reusable named operators, error types, and
+Async, benchmarking, reusable named operators, error types, and
 "don't know" answers. Each will be added as its own small step.

@@ -1,0 +1,54 @@
+"""Laya, the open-weight Jev-compatible model (``pip install semantic-operators[laya]``).
+
+Runs locally. You load the model with the ``laya`` package and pass it in:
+``laya.load("convaiinnovations/laya")`` for one checkpoint, or ``laya.Router()`` to
+pick a checkpoint by language. Both have the ``predict`` method used here.
+"""
+
+from collections.abc import Mapping
+from typing import Any
+
+from ..types import Answer, Boolean, Choice, Question, Score, State
+
+
+class Laya:
+    def __init__(self, model: Any) -> None:
+        self.model = model
+
+    def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
+        result = self.model.predict(state, {name: _to_laya(q) for name, q in questions.items()})
+        answers = result["answers"]
+        return {name: _from_laya(q, answers[name]) for name, q in questions.items()}
+
+
+# Laya takes and returns plain dicts in Jev's request/response shape.
+
+
+def _to_laya(question: Question) -> dict[str, Any]:
+    match question:
+        case Boolean():
+            q: dict[str, Any] = {"type": "noul", "instructions": question.instructions}
+            if question.true is not None or question.false is not None:
+                q["criteria"] = {"true": question.true, "false": question.false}
+            return q
+        case Choice():
+            return {"type": "choice", "instructions": question.instructions,
+                    "criteria": dict(question.options)}
+        case Score():
+            return {"type": "score", "instructions": question.instructions,
+                    "criteria": list(question.levels)}
+
+
+def _from_laya(question: Question, answer: dict[str, Any]) -> Answer:
+    match question:
+        case Boolean():
+            p = answer["noul"]
+            return Answer(value=p > 0.5, probabilities={"true": p, "false": 1 - p}, raw=answer)
+        case Choice():
+            probabilities = {option: answer["probabilities"][option] for option in question.options}
+            return Answer(value=answer["choice"], probabilities=probabilities, raw=answer)
+        case Score():
+            # Laya keys probabilities by level index as a string ("0", "1", ...).
+            probabilities = {level: answer["probabilities"][str(i)]
+                             for i, level in enumerate(question.levels)}
+            return Answer(value=answer["score"], probabilities=probabilities, raw=answer)

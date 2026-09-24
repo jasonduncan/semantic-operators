@@ -44,9 +44,10 @@ class Answer:
     """The answer to one question.
 
     - Boolean: ``value`` is a bool; ``probabilities`` has keys "true" and "false".
-    - Choice:  ``value`` is the chosen option name; ``probabilities`` is keyed by option.
+    - Choice:  ``value`` is the chosen option name; ``probabilities`` is keyed by option,
+               in the same order as the question's options.
     - Score:   ``value`` is the expected score (a float, may fall between levels);
-               ``probabilities`` is keyed by level text.
+               ``probabilities`` is keyed by level text, in level order.
 
     ``raw`` is the provider's own answer object, for when you need more.
     """
