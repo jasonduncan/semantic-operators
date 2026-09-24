@@ -1,0 +1,14 @@
+[project]
+name = "semantic-operators"
+version = "0.1.0"
+description = "One small interface for System One models like Jev."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+jev = ["typesafe-sdk>=0.7.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
