@@ -8,27 +8,57 @@ the providers, not a verdict on them.
 from semantic_operators import Boolean, Choice, Score
 from semantic_operators.bench import Case
 
-questions = {
-    "is_complaint": Boolean("Is the customer complaining or expressing dissatisfaction?"),
-    "department": Choice(
-        "Which team should handle this message?",
-        {
-            "billing": "Charges, invoices, payments, refunds, or pricing.",
-            "technical": "Bugs, errors, outages, or difficulty using the product.",
-            "account": "Logging in, passwords, profile details, or account access and closure.",
-            "other": "Anything else, such as feedback, partnerships, or general questions.",
-        },
-    ),
-    "urgency": Score(
-        "How urgently does this need a response?",
-        ["low: can wait days", "medium: should be handled today", "high: needs attention now"],
-    ),
+# The same three questions, worded three ways. Option names and level order are
+# identical across wordings, so one set of labels applies to all of them.
+wordings = {
+    "descriptive": {
+        "is_complaint": Boolean("Is the customer complaining or expressing dissatisfaction?"),
+        "department": Choice(
+            "Which team should handle this message?",
+            {
+                "billing": "Charges, invoices, payments, refunds, or pricing.",
+                "technical": "Bugs, errors, outages, or difficulty using the product.",
+                "account": "Logging in, passwords, profile details, or account access and closure.",
+                "other": "Anything else, such as feedback, partnerships, or general questions.",
+            },
+        ),
+        "urgency": Score(
+            "How urgently does this need a response?",
+            ["low: can wait days", "medium: should be handled today", "high: needs attention now"],
+        ),
+    },
+    "plain": {
+        "is_complaint": Boolean("Is this a complaint?"),
+        "department": Choice(
+            "Which department?",
+            {"billing": None, "technical": None, "account": None, "other": None},
+        ),
+        "urgency": Score("How urgent is this?", ["not urgent", "soon", "urgent"]),
+    },
+    "reworded": {
+        "is_complaint": Boolean("Does the writer express frustration, disappointment, or a grievance?"),
+        "department": Choice(
+            "Route this message to the right team.",
+            {
+                "billing": "Money: payments, invoices, refunds, prices.",
+                "technical": "The product not working as expected.",
+                "account": "Sign-in, credentials, account settings, or deleting the account.",
+                "other": "None of the above.",
+            },
+        ),
+        "urgency": Score(
+            "How quickly should support reply?",
+            ["whenever convenient", "within the day", "immediately"],
+        ),
+    },
 }
 
-LOW, MEDIUM, HIGH = questions["urgency"].levels
+questions = wordings["descriptive"]
+
+LOW, MEDIUM, HIGH = 0, 1, 2  # urgency labels are level indexes
 
 
-def case(state: str, complaint: bool, department: str, urgency: str) -> Case:
+def case(state: str, complaint: bool, department: str, urgency: int) -> Case:
     return Case(state, {"is_complaint": complaint, "department": department, "urgency": urgency})
 
 

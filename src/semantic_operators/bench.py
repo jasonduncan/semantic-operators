@@ -3,11 +3,13 @@
 Higher layer: built only on the base layer (types + Provider).
 
 For each question we report:
-- accuracy:   how often ``value`` matches the label. For Score, the value is
-              rounded to the nearest level first.
+- accuracy:   how often the provider's decision matches the label.
 - p(correct): the average probability the provider gave the labeled answer.
               Two providers can be equally accurate while one is far more sure
               of itself when it's right (and, worse, when it's wrong).
+
+``stability`` compares runs of differently worded versions of the same
+questions: how often does the decision stay the same when only the wording changes?
 """
 
 import statistics
@@ -18,14 +20,21 @@ from dataclasses import dataclass, field
 from .provider import Provider
 from .types import Answer, Boolean, Choice, Question, Score, State
 
+# A decision is an answer reduced to one discrete label:
+# a bool for Boolean, an option name for Choice, a level index (0, 1, ...) for Score.
+Decision = bool | str | int
+
 
 @dataclass(frozen=True)
 class Case:
-    """One labeled input. ``expected`` maps question name -> label:
-    a bool for Boolean, an option name for Choice, a level name for Score."""
+    """One labeled input. ``expected`` maps question name -> the correct decision.
+
+    Score labels are level indexes, not level text, so the same labels still apply
+    when the rubric is reworded.
+    """
 
     state: State
-    expected: dict[str, bool | str]
+    expected: dict[str, Decision]
 
 
 @dataclass
@@ -47,7 +56,7 @@ class QuestionStats:
 class Miss:
     case: int
     question: str
-    expected: bool | str
+    expected: Decision
     got: Answer
 
 
@@ -56,6 +65,16 @@ class Report:
     questions: dict[str, QuestionStats]
     latencies_ms: list[float]
     misses: list[Miss]
+    decisions: list[dict[str, Decision]]  # per case, per question
+
+
+def decide(question: Question, answer: Answer) -> Decision:
+    """Reduce an answer to a discrete decision (Score: round half up to a level index)."""
+    match question:
+        case Boolean() | Choice():
+            return answer.value
+        case Score():
+            return int(float(answer.value) + 0.5)
 
 
 def run(provider: Provider, questions: Mapping[str, Question], cases: Sequence[Case],
@@ -68,34 +87,52 @@ def run(provider: Provider, questions: Mapping[str, Question], cases: Sequence[C
     for case in cases[:warmup]:
         provider.ask(case.state, questions)
 
-    stats = {name: QuestionStats() for name in questions}
+    answers: list[dict[str, Answer]] = []
     latencies: list[float] = []
-    misses: list[Miss] = []
-    for i, case in enumerate(cases):
+    for case in cases:
         start = time.perf_counter()
-        answers = provider.ask(case.state, questions)
+        answers.append(provider.ask(case.state, questions))
         latencies.append((time.perf_counter() - start) * 1000)
+    return score(questions, cases, answers, latencies)
 
+
+def score(questions: Mapping[str, Question], cases: Sequence[Case],
+          answers: Sequence[Mapping[str, Answer]], latencies_ms: list[float]) -> Report:
+    """Score already-collected answers (one dict of answers per case) against the labels."""
+    stats = {name: QuestionStats() for name in questions}
+    misses: list[Miss] = []
+    decisions: list[dict[str, Decision]] = []
+    for i, (case, case_answers) in enumerate(zip(cases, answers, strict=True)):
+        decisions.append({name: decide(q, case_answers[name]) for name, q in questions.items()})
         for name, label in case.expected.items():
-            answer, s = answers[name], stats[name]
-            ok = _matches(questions[name], answer, label)
+            answer, s = case_answers[name], stats[name]
+            ok = decisions[-1][name] == label
             s.total += 1
             s.correct += ok
-            s.p_correct.append(answer.probabilities[_key(label)])
+            s.p_correct.append(answer.probabilities[_key(questions[name], label)])
             if not ok:
                 misses.append(Miss(i, name, label, answer))
-    return Report(stats, latencies, misses)
+    return Report(stats, latencies_ms, misses, decisions)
 
 
-def _matches(question: Question, answer: Answer, label: bool | str) -> bool:
+def stability(reports: Sequence[Report]) -> dict[str, float]:
+    """Per question: the fraction of cases whose decision is identical in every report.
+
+    Pass reports from differently worded versions of the same questions. Labels play
+    no part: a model can be perfectly stable and consistently wrong.
+    """
+    names = reports[0].decisions[0].keys()
+    cases = range(len(reports[0].decisions))
+    return {name: sum(len({r.decisions[i][name] for r in reports}) == 1 for i in cases) / len(cases)
+            for name in names}
+
+
+def _key(question: Question, label: Decision) -> str:
+    # Answer.probabilities keys: "true"/"false", option names, or level text.
     match question:
-        case Boolean() | Choice():
-            return answer.value == label
+        case Boolean():
+            return str(label).lower()
+        case Choice():
+            return str(label)
         case Score():
-            # Round half up (Python's round() would send 0.5 to 0 but 1.5 to 2).
-            return question.levels[int(float(answer.value) + 0.5)] == label
-
-
-def _key(label: bool | str) -> str:
-    # Boolean probabilities are keyed "true"/"false"; everything else by its label.
-    return str(label).lower() if isinstance(label, bool) else label
+            return question.levels[int(label)]

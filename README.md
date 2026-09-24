@@ -89,7 +89,8 @@ uv run --env-file .env --extra jev --extra laya python benchmarks/run.py
 ```
 
 `benchmarks/support_tickets.py` holds 20 hand-written, hand-labeled support messages
-(3 questions each). It's a smoke test, not a verdict: small, authored, one person's labels.
+and the same 3 questions in three wordings. `bench.stability(reports)` reports how often
+a provider's decision stays the same when only the wording changes (labels play no part). It's a smoke test, not a verdict: small, authored, one person's labels.
 
 ## Layout
 
