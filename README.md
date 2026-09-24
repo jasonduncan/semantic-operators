@@ -77,6 +77,20 @@ Compare both side by side:
 uv run --env-file .env --extra jev --extra laya python examples/compare.py
 ```
 
+## Benchmark
+
+`bench.run(provider, questions, cases)` asks each labeled case all questions in one call
+and reports, per question, **accuracy** (Score values are rounded to the nearest level)
+and **p(correct)**, the average probability the provider gave the right answer, plus
+latency and every miss.
+
+```sh
+uv run --env-file .env --extra jev --extra laya python benchmarks/run.py
+```
+
+`benchmarks/support_tickets.py` holds 20 hand-written, hand-labeled support messages
+(3 questions each). It's a smoke test, not a verdict: small, authored, one person's labels.
+
 ## Layout
 
 ```
@@ -85,18 +99,23 @@ src/semantic_operators/
   provider.py       the Provider interface (one method)
   providers/jev.py  translates to/from the TypeSafe SDK
   providers/laya.py translates to/from the laya package
-examples/hello.py   one real call to Jev
-examples/compare.py the same questions through Jev and Laya
+  bench.py          (higher layer) run labeled cases through a provider, score them
+examples/
+  hello.py          one real call to Jev
+  compare.py        the same questions through Jev and Laya
+benchmarks/
+  support_tickets.py  20 labeled messages + the questions
+  run.py              runs the suite through Jev and Laya
 ```
 
 ## Layers
 
 Semantic Operators is built in layers inside one package:
 
-1. **Base layer (today):** a clean, provider-neutral abstraction over System One
+1. **Base layer:** a clean, provider-neutral abstraction over System One
    models: `types.py`, `provider.py`, `providers/`.
-2. **Higher layers (later):** reusable named operators, composition, benchmarking.
-   These are built only on the base layer.
+2. **Higher layers:** built only on the base layer. So far: `bench.py`. Later: reusable
+   named operators and composition.
 
 The base layer never imports from a higher layer, so it could later be split out as its
 own package without changing how it's used.
@@ -109,5 +128,5 @@ own package without changing how it's used.
 
 ## Not here yet (on purpose)
 
-Async, benchmarking, reusable named operators, error types, and
+Async, reusable named operators, error types, and
 "don't know" answers. Each will be added as its own small step.
