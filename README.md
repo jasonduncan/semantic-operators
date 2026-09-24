@@ -11,6 +11,16 @@ write your code once and swap the model underneath.
 | `providers.jev.Jev`   | TypeSafe's hosted API (needs `TYPESAFE_API_KEY`) | `[jev]`  |
 | `providers.laya.Laya` | on your machine (~800 MB download on first use)  | `[laya]` |
 
+## Install
+
+```sh
+pip install "semantic-operators[jev]"        # Jev (hosted)
+pip install "semantic-operators[laya]"       # Laya (local; pulls in torch)
+pip install "semantic-operators[jev,laya]"   # both
+```
+
+The core alone (`pip install semantic-operators`) has no dependencies.
+
 ## The whole idea
 
 A System One model is asked **named questions about a piece of state** and returns an
@@ -153,3 +163,7 @@ own package without changing how it's used.
 
 Reusable named operators, error types, and
 "don't know" answers. Each will be added as its own small step.
+
+## License
+
+MIT

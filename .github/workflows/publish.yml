@@ -1,0 +1,21 @@
+# Publishes to PyPI when a GitHub Release is published.
+# Uses PyPI Trusted Publishing: no API token is stored anywhere.
+# One-time setup on pypi.org: add a (pending) publisher for this repo,
+# workflow "publish.yml", environment "pypi".
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # lets PyPI verify this workflow's identity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build
+      - run: uv publish
