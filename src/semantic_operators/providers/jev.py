@@ -1,7 +1,8 @@
 """Jev, via the TypeSafe SDK (``pip install semantic-operators[jev]``).
 
 Translation only: our questions -> SDK questions, one ``system_one`` call,
-SDK answers -> our ``Answer``. You create and own the SDK client.
+SDK answers -> our ``Answer``. You create and own the SDK client:
+``TypeSafeClient`` for ``Jev``, ``AsyncTypeSafeClient`` for ``AsyncJev``.
 """
 
 from collections.abc import Mapping
@@ -18,6 +19,20 @@ class Jev:
 
     def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
         response = self.client.system_one(
+            state=state,
+            questions={name: _to_jev(q) for name, q in questions.items()},
+            model=self.model,
+        )
+        return {name: _from_jev(q, response.answers[name]) for name, q in questions.items()}
+
+
+class AsyncJev:
+    def __init__(self, client: ts.AsyncTypeSafeClient, model: str = "jev-latest") -> None:
+        self.client = client
+        self.model = model
+
+    async def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
+        response = await self.client.system_one(
             state=state,
             questions={name: _to_jev(q) for name, q in questions.items()},
             model=self.model,

@@ -8,16 +8,20 @@ For each question we report:
               Two providers can be equally accurate while one is far more sure
               of itself when it's right (and, worse, when it's wrong).
 
+``run_async`` is ``run`` for an ``AsyncProvider``, with up to ``concurrency``
+calls in flight at once.
+
 ``stability`` compares runs of differently worded versions of the same
 questions: how often does the decision stay the same when only the wording changes?
 """
 
+import asyncio
 import statistics
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-from .provider import Provider
+from .provider import AsyncProvider, Provider
 from .types import Answer, Boolean, Choice, Question, Score, State
 
 # A decision is an answer reduced to one discrete label:
@@ -63,7 +67,8 @@ class Miss:
 @dataclass
 class Report:
     questions: dict[str, QuestionStats]
-    latencies_ms: list[float]
+    latencies_ms: list[float]  # per call
+    total_ms: float            # wall-clock time for all cases (excludes warm-up)
     misses: list[Miss]
     decisions: list[dict[str, Decision]]  # per case, per question
 
@@ -89,15 +94,44 @@ def run(provider: Provider, questions: Mapping[str, Question], cases: Sequence[C
 
     answers: list[dict[str, Answer]] = []
     latencies: list[float] = []
+    begin = time.perf_counter()
     for case in cases:
         start = time.perf_counter()
         answers.append(provider.ask(case.state, questions))
         latencies.append((time.perf_counter() - start) * 1000)
-    return score(questions, cases, answers, latencies)
+    total = (time.perf_counter() - begin) * 1000
+    return score(questions, cases, answers, latencies, total)
+
+
+async def run_async(provider: AsyncProvider, questions: Mapping[str, Question],
+                    cases: Sequence[Case], warmup: int = 1, concurrency: int = 4) -> Report:
+    """Like ``run``, but with up to ``concurrency`` calls in flight at once.
+
+    Per-call latency is measured from when a call gets a concurrency slot. It still
+    includes any queueing inside the provider (``AsyncLaya`` runs one call at a time),
+    so under concurrency it measures what a caller waits, not model speed.
+    ``total_ms`` shows the throughput gain, if any.
+    """
+    for case in cases[:warmup]:
+        await provider.ask(case.state, questions)
+
+    slots = asyncio.Semaphore(concurrency)
+
+    async def one(case: Case) -> tuple[dict[str, Answer], float]:
+        async with slots:
+            start = time.perf_counter()
+            answers = await provider.ask(case.state, questions)
+            return answers, (time.perf_counter() - start) * 1000
+
+    begin = time.perf_counter()
+    results = await asyncio.gather(*(one(case) for case in cases))  # keeps case order
+    total = (time.perf_counter() - begin) * 1000
+    return score(questions, cases, [a for a, _ in results], [ms for _, ms in results], total)
 
 
 def score(questions: Mapping[str, Question], cases: Sequence[Case],
-          answers: Sequence[Mapping[str, Answer]], latencies_ms: list[float]) -> Report:
+          answers: Sequence[Mapping[str, Answer]], latencies_ms: list[float],
+          total_ms: float) -> Report:
     """Score already-collected answers (one dict of answers per case) against the labels."""
     stats = {name: QuestionStats() for name in questions}
     misses: list[Miss] = []
@@ -112,7 +146,7 @@ def score(questions: Mapping[str, Question], cases: Sequence[Case],
             s.p_correct.append(answer.probabilities[_key(questions[name], label)])
             if not ok:
                 misses.append(Miss(i, name, label, answer))
-    return Report(stats, latencies_ms, misses, decisions)
+    return Report(stats, latencies_ms, total_ms, misses, decisions)
 
 
 def stability(reports: Sequence[Report]) -> dict[str, float]:

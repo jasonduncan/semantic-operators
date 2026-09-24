@@ -92,12 +92,33 @@ uv run --env-file .env --extra jev --extra laya python benchmarks/run.py
 and the same 3 questions in three wordings. `bench.stability(reports)` reports how often
 a provider's decision stays the same when only the wording changes (labels play no part). It's a smoke test, not a verdict: small, authored, one person's labels.
 
+## Async
+
+Every provider has an async twin with the same contract, `await provider.ask(...)`:
+
+```python
+from typesafe_sdk import AsyncTypeSafeClient
+from semantic_operators.providers.jev import AsyncJev
+from semantic_operators.providers.laya import AsyncLaya
+
+async with AsyncTypeSafeClient() as client:
+    answers = await AsyncJev(client).ask(state, questions)
+```
+
+`AsyncLaya` runs the local model in a worker thread, one call at a time. Concurrency
+speeds up a hosted API (many requests in flight), not a single local model.
+`bench.run_async(provider, questions, cases, concurrency=8)` benchmarks async providers:
+
+```sh
+uv run --env-file .env --extra jev --extra laya python benchmarks/run_async.py
+```
+
 ## Layout
 
 ```
 src/semantic_operators/
   types.py          Boolean, Choice, Score, Answer: our vocabulary
-  provider.py       the Provider interface (one method)
+  provider.py       Provider and AsyncProvider (one method each)
   providers/jev.py  translates to/from the TypeSafe SDK
   providers/laya.py translates to/from the laya package
   bench.py          (higher layer) run labeled cases through a provider, score them
@@ -107,6 +128,7 @@ examples/
 benchmarks/
   support_tickets.py  20 labeled messages + the questions
   run.py              runs the suite through Jev and Laya
+  run_async.py        concurrency, and both providers at once
 ```
 
 ## Layers
@@ -129,5 +151,5 @@ own package without changing how it's used.
 
 ## Not here yet (on purpose)
 
-Async, reusable named operators, error types, and
+Reusable named operators, error types, and
 "don't know" answers. Each will be added as its own small step.

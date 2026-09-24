@@ -3,8 +3,13 @@
 Runs locally. You load the model with the ``laya`` package and pass it in:
 ``laya.load("convaiinnovations/laya")`` for one checkpoint, or ``laya.Router()`` to
 pick a checkpoint by language. Both have the ``predict`` method used here.
+
+``AsyncLaya`` runs predictions in a worker thread so they don't block the event
+loop, one at a time (the model is a single local compute resource; Laya's own
+HTTP server serializes calls the same way).
 """
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -19,6 +24,16 @@ class Laya:
         result = self.model.predict(state, {name: _to_laya(q) for name, q in questions.items()})
         answers = result["answers"]
         return {name: _from_laya(q, answers[name]) for name, q in questions.items()}
+
+
+class AsyncLaya:
+    def __init__(self, model: Any) -> None:
+        self._laya = Laya(model)
+        self._lock = asyncio.Lock()
+
+    async def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
+        async with self._lock:
+            return await asyncio.to_thread(self._laya.ask, state, questions)
 
 
 # Laya takes and returns plain dicts in Jev's request/response shape.
