@@ -65,6 +65,18 @@ src/semantic_operators/
 examples/hello.py   one real call to Jev
 ```
 
+## Layers
+
+Semantic Operators is built in layers inside one package:
+
+1. **Base layer (today):** a clean, provider-neutral abstraction over System One
+   models: `types.py`, `provider.py`, `providers/`.
+2. **Higher layers (later):** reusable named operators, composition, benchmarking.
+   These are built only on the base layer.
+
+The base layer never imports from a higher layer, so it could later be split out as its
+own package without changing how it's used.
+
 ## Rules
 
 - The library never reads API keys or environment variables. You build the client.
