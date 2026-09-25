@@ -2,6 +2,9 @@
 
 They're Protocols, so providers don't inherit from anything or register anywhere.
 ``AsyncProvider`` is the same contract with ``ask`` awaited.
+
+When something goes wrong, a provider raises ``ProviderError`` (see errors.py),
+never its SDK's own exceptions. Answers are built with ``types.make_answer``.
 """
 
 from collections.abc import Mapping

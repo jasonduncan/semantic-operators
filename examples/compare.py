@@ -37,7 +37,7 @@ def show(name: str, provider: Provider) -> None:
     for question, answer in answers.items():
         value = f"{answer.value:.2f}" if isinstance(answer.value, float) else repr(answer.value)
         probabilities = ", ".join(f"{k}={p:.2f}" for k, p in answer.probabilities.items())
-        print(f"  {question:>13}: {value:<12} ({probabilities})")
+        print(f"  {question:>13}: {value:<12} confidence {answer.confidence:.2f}  ({probabilities})")
 
 
 print(f"Message: {message}")

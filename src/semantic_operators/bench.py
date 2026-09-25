@@ -3,10 +3,16 @@
 Higher layer: built only on the base layer (types + Provider).
 
 For each question we report:
-- accuracy:   how often the provider's decision matches the label.
+- accuracy:   how often the provider's decision matches the label. An undecided
+              answer ("don't know") counts as not correct, but not as a miss.
+- answered:   how many cases got a decision at all (the rest were undecided).
 - p(correct): the average probability the provider gave the labeled answer.
               Two providers can be equally accurate while one is far more sure
               of itself when it's right (and, worse, when it's wrong).
+
+``at_min_confidence`` re-scores a report as if every question had a stricter
+``min_confidence``, without asking the provider again: the trade-off between
+answering fewer cases and being right more often when it does answer.
 
 ``run_async`` is ``run`` for an ``AsyncProvider``, with up to ``concurrency``
 calls in flight at once.
@@ -19,14 +25,15 @@ import asyncio
 import statistics
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .provider import AsyncProvider, Provider
 from .types import Answer, Boolean, Choice, Question, Score, State
 
 # A decision is an answer reduced to one discrete label:
-# a bool for Boolean, an option name for Choice, a level index (0, 1, ...) for Score.
-Decision = bool | str | int
+# a bool for Boolean, an option name for Choice, a level index (0, 1, ...) for Score,
+# or None when the answer is undecided.
+Decision = bool | str | int | None
 
 
 @dataclass(frozen=True)
@@ -44,12 +51,21 @@ class Case:
 @dataclass
 class QuestionStats:
     correct: int = 0
+    undecided: int = 0
     total: int = 0
     p_correct: list[float] = field(default_factory=list)
 
     @property
+    def answered(self) -> int:
+        return self.total - self.undecided
+
+    @property
     def accuracy(self) -> float:
         return self.correct / self.total if self.total else 0.0
+
+    @property
+    def accuracy_when_answered(self) -> float:
+        return self.correct / self.answered if self.answered else 0.0
 
     @property
     def mean_p_correct(self) -> float:
@@ -69,12 +85,15 @@ class Report:
     questions: dict[str, QuestionStats]
     latencies_ms: list[float]  # per call
     total_ms: float            # wall-clock time for all cases (excludes warm-up)
-    misses: list[Miss]
+    misses: list[Miss]                    # wrong answers (undecided ones aren't misses)
+    answers: list[dict[str, Answer]]      # per case, per question
     decisions: list[dict[str, Decision]]  # per case, per question
 
 
 def decide(question: Question, answer: Answer) -> Decision:
     """Reduce an answer to a discrete decision (Score: round half up to a level index)."""
+    if answer.value is None:
+        return None
     match question:
         case Boolean() | Choice():
             return answer.value
@@ -140,13 +159,29 @@ def score(questions: Mapping[str, Question], cases: Sequence[Case],
         decisions.append({name: decide(q, case_answers[name]) for name, q in questions.items()})
         for name, label in case.expected.items():
             answer, s = case_answers[name], stats[name]
-            ok = decisions[-1][name] == label
+            decision = decisions[-1][name]
             s.total += 1
-            s.correct += ok
             s.p_correct.append(answer.probabilities[_key(questions[name], label)])
-            if not ok:
+            if decision is None:
+                s.undecided += 1
+            elif decision == label:
+                s.correct += 1
+            else:
                 misses.append(Miss(i, name, label, answer))
-    return Report(stats, latencies_ms, total_ms, misses, decisions)
+    return Report(stats, latencies_ms, total_ms, misses,
+                  [dict(a) for a in answers], decisions)
+
+
+def at_min_confidence(report: Report, questions: Mapping[str, Question], cases: Sequence[Case],
+                      min_confidence: float) -> Report:
+    """Re-score ``report`` as if every question had ``min_confidence``, without asking again.
+
+    Answers whose confidence is below it become undecided. It can only make answers
+    stricter: answers that were already undecided stay undecided.
+    """
+    stricter = [{name: replace(a, value=None) if a.confidence < min_confidence else a
+                 for name, a in case_answers.items()} for case_answers in report.answers]
+    return score(questions, cases, stricter, report.latencies_ms, report.total_ms)
 
 
 def stability(reports: Sequence[Report]) -> dict[str, float]:

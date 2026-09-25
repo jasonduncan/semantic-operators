@@ -7,13 +7,18 @@ pick a checkpoint by language. Both have the ``predict`` method used here.
 ``AsyncLaya`` runs predictions in a worker thread so they don't block the event
 loop, one at a time (the model is a single local compute resource; Laya's own
 HTTP server serializes calls the same way).
+
+Any failure inside the model (for example, options too long to fit, out of memory)
+or an unexpected result is raised as ``ProviderError``. The ``laya`` package has
+no error base class of its own, so every exception from ``predict`` is wrapped.
 """
 
 import asyncio
 from collections.abc import Mapping
 from typing import Any
 
-from ..types import Answer, Boolean, Choice, Question, Score, State
+from ..errors import ProviderError
+from ..types import Answer, Boolean, Choice, Question, Score, State, make_answer
 
 
 class Laya:
@@ -21,9 +26,15 @@ class Laya:
         self.model = model
 
     def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
-        result = self.model.predict(state, {name: _to_laya(q) for name, q in questions.items()})
-        answers = result["answers"]
-        return {name: _from_laya(q, answers[name]) for name, q in questions.items()}
+        try:
+            result = self.model.predict(state, {name: _to_laya(q) for name, q in questions.items()})
+        except Exception as error:
+            raise ProviderError("Laya", str(error) or type(error).__name__) from error
+        try:
+            answers = result["answers"]
+            return {name: _from_laya(q, answers[name]) for name, q in questions.items()}
+        except (KeyError, TypeError, ValueError) as error:
+            raise ProviderError("Laya", f"unexpected result: {error!r}") from error
 
 
 class AsyncLaya:
@@ -58,12 +69,12 @@ def _from_laya(question: Question, answer: dict[str, Any]) -> Answer:
     match question:
         case Boolean():
             p = answer["noul"]
-            return Answer(value=p > 0.5, probabilities={"true": p, "false": 1 - p}, raw=answer)
+            return make_answer(question, p > 0.5, {"true": p, "false": 1 - p}, answer)
         case Choice():
             probabilities = {option: answer["probabilities"][option] for option in question.options}
-            return Answer(value=answer["choice"], probabilities=probabilities, raw=answer)
+            return make_answer(question, answer["choice"], probabilities, answer)
         case Score():
             # Laya keys probabilities by level index as a string ("0", "1", ...).
             probabilities = {level: answer["probabilities"][str(i)]
                              for i, level in enumerate(question.levels)}
-            return Answer(value=answer["score"], probabilities=probabilities, raw=answer)
+            return make_answer(question, answer["score"], probabilities, answer)

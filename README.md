@@ -35,7 +35,8 @@ answer with probabilities for each. There are three kinds of question:
 | `Score`   | instructions + ordered rubric levels          | expected level as a float, e.g. `1.7` |
 
 Every `Answer` also carries `probabilities` (a dict, in the question's option/level
-order) and `raw` (the provider's own answer object).
+order), `confidence` (the probability of its own answer), and `raw` (the provider's
+own answer object).
 
 A **provider** is anything with one method:
 
@@ -89,12 +90,52 @@ Compare both side by side:
 uv run --env-file .env --extra typesafe --extra laya python examples/compare.py
 ```
 
+## "Don't know" answers
+
+A model that's split, or not sure enough, should say so rather than guess. Give any
+question a `min_confidence`; below it, the answer comes back **undecided**
+(`value is None`, `decided is False`), with its probabilities kept:
+
+```python
+department = Choice("Which team?", {"billing": None, "technical": None},
+                    min_confidence=0.8)
+answer = provider.ask(message, {"department": department})["department"]
+
+if answer.decided:
+    route(answer.value)
+else:
+    send_to_a_human(answer.probabilities)   # still shows what it was leaning toward
+```
+
+An exact tie (a Boolean at 0.5, two options equally likely) is always undecided.
+Confidence is the model's own view, not a guarantee. `benchmarks/run_confidence.py`
+checks whether it means anything: on the support suite, TypeSafe's urgency answers at
+`min_confidence=0.8` were right 10 of 10 times (answering half the cases), while
+Laya's were right 4 of 7.
+
+## Errors
+
+Every provider raises one error type, whatever went wrong underneath (network, bad
+key, rate limit, a model failure, an unexpected response):
+
+```python
+from semantic_operators import ProviderError
+
+try:
+    answers = provider.ask(state, questions)
+except ProviderError as error:
+    error.provider     # "TypeSafe" or "Laya"
+    error.__cause__    # the original exception, for details
+```
+
 ## Benchmark
 
 `bench.run(provider, questions, cases)` asks each labeled case all questions in one call
 and reports, per question, **accuracy** (Score values are rounded to the nearest level)
 and **p(correct)**, the average probability the provider gave the right answer, plus
-latency and every miss.
+latency and every miss. Undecided answers are counted separately (`answered`), not as
+misses. `bench.at_min_confidence(report, questions, cases, 0.8)` re-scores a run at a
+stricter threshold without asking the provider again.
 
 ```sh
 uv run --env-file .env --extra typesafe --extra laya python benchmarks/run.py
@@ -102,7 +143,8 @@ uv run --env-file .env --extra typesafe --extra laya python benchmarks/run.py
 
 `benchmarks/support_tickets.py` holds 20 hand-written, hand-labeled support messages
 and the same 3 questions in three wordings. `bench.stability(reports)` reports how often
-a provider's decision stays the same when only the wording changes (labels play no part). It's a smoke test, not a verdict: small, authored, one person's labels.
+a provider's decision stays the same when only the wording changes (labels play no part).
+It's a smoke test, not a verdict: small, authored, one person's labels.
 
 ## Async
 
@@ -129,8 +171,9 @@ uv run --env-file .env --extra typesafe --extra laya python benchmarks/run_async
 
 ```
 src/semantic_operators/
-  types.py          Boolean, Choice, Score, Answer: our vocabulary
+  types.py          Boolean, Choice, Score, Answer, make_answer: our vocabulary
   provider.py       Provider and AsyncProvider (one method each)
+  errors.py         ProviderError, the one error every provider raises
   providers/typesafe.py  translates to/from the TypeSafe SDK
   providers/laya.py translates to/from the laya package
   bench.py          (higher layer) run labeled cases through a provider, score them
@@ -141,6 +184,8 @@ benchmarks/
   support_tickets.py  20 labeled messages + the questions
   run.py              runs the suite through TypeSafe and Laya
   run_async.py        concurrency, and both providers at once
+  run_confidence.py   the "don't know" trade-off at several min_confidence levels
+tests/                offline tests (uv run --extra typesafe --extra laya pytest)
 ```
 
 ## Layers
@@ -148,7 +193,7 @@ benchmarks/
 Semantic Operators is built in layers inside one package:
 
 1. **Base layer:** a clean, provider-neutral abstraction over System One
-   models: `types.py`, `provider.py`, `providers/`.
+   models: `types.py`, `provider.py`, `errors.py`, `providers/`.
 2. **Higher layers:** built only on the base layer. So far: `bench.py`. Later: reusable
    named operators and composition.
 
@@ -163,8 +208,8 @@ own package without changing how it's used.
 
 ## Not here yet (on purpose)
 
-Reusable named operators, error types, and
-"don't know" answers. Each will be added as its own small step.
+Reusable named operators, and batching many inputs into one call (Laya's
+`predict_batch`). Each will be added as its own small step.
 
 ## License
 
