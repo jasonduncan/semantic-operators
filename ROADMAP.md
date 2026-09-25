@@ -11,6 +11,9 @@ Nothing here is a promise of dates.
   interrupted mid-prediction, so the neutral version needs care.
 - **Request IDs** in `Call`, once a provider reports them.
 
+Done in 0.6.0: reranking (`rerank.py`), scoring each candidate on its own and sorting,
+with `bench.ndcg` to compare against retrieval order.
+
 Done in 0.5.0: every answer's `call` records the model the provider reported and the
 tokens used. Retries are decided: they belong to the client you build (the TypeSafe
 SDK retries by default; `RetryPolicy(max_retries=0)` turns that off).
@@ -34,7 +37,11 @@ The name promises operators you can combine, and this is where it's headed:
 - **Benchmark suites as data files** (JSONL) with saved reports, so suites can hold
   your own labeled data and runs can be compared over time. Include "must say don't
   know" cases.
-- **Batching:** many inputs in one call (Laya's `predict_batch`).
+- **Batching:** many inputs in one call. Laya's `predict_batch` takes separate states
+  with the same questions, which is exactly reranking's shape (one relevance question,
+  many documents, each still in its own state). TypeSafe has no equivalent; putting
+  every document into one shared state changes what the model sees, so that would be
+  an experiment, not an optimization.
 - **Caching** answers for the same input and operator.
 - **Provider limits and a conformance test kit**, once there are enough providers
   with different limits (for example, TypeSafe allows at most 10 score levels).
@@ -42,7 +49,8 @@ The name promises operators you can combine, and this is where it's headed:
 ## Not planned (for now)
 
 - **`Rank`** as a question type, until a provider supports ranking natively. Faking it
-  with Choice probabilities would misrepresent what the model did.
+  with Choice probabilities would misrepresent what the model did. Reranking is a
+  separate recipe (score each candidate, then sort), not a `Rank` answer.
 - **"Don't know" reasons** beyond "not sure enough": no current model reports others.
 - **Observations, sensors, and time series:** they belong in a layer built on top,
   not in the model abstraction.

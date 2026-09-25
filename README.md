@@ -126,6 +126,43 @@ answers["urgency"].value
 `examples/triage.py` builds ticket triage from three operators, sending anything the
 model isn't sure about to a person. Add `--laya` to run the same code locally.
 
+## Reranking
+
+Your retrieval (search, vector index, database) finds candidates; a System One model
+reorders them by how well each one answers the query. Each candidate is scored on its
+own against a relevance rubric, one call each, and plain code sorts the results:
+
+```python
+from semantic_operators import Score
+from semantic_operators.rerank import rerank, rerank_async, reweighted
+
+relevance = Score("How useful is the document for answering the query?",
+                  ["no useful information", "on topic but doesn't answer", "partly answers",
+                   "answers with minor gaps", "fully answers"])
+
+ranking = rerank(provider, relevance, query="How do I reset my password?",
+                 candidates={"doc-1": {"title": ..., "text": ...}, ...})  # retrieval order
+for r in ranking.top(10):
+    r.id, r.score, r.answer.probabilities
+```
+
+- **Each call sees only** `{"query", "document"}` (plus `"context"` if you pass one).
+  Ids and positions are never sent, so a score doesn't depend on the other candidates.
+- **Ranked by expected rubric level**, not confidence. Ties keep retrieval order, and
+  scores aren't normalized across documents: all can be relevant, or none.
+- **Nothing gets a made-up score.** Undecided or failed candidates go to `unscored`.
+  `top()` refuses a partial ranking unless you pass `allow_partial=True`, and refuses
+  scores from more than one model (`ranking.models`), since a moving alias such as
+  `jev-latest` can change mid-run.
+- **Your own level weights:** `reweighted(ranking, [0, 10, 40, 80, 100])` re-sorts from
+  the probabilities already returned, with no new calls. Uneven weights can change the
+  order, so evaluate them first.
+- **Async:** `await rerank_async(..., concurrency=8)` keeps up to 8 calls in flight.
+
+`bench.ndcg(order, grades)` scores an ordering against graded relevance labels.
+`examples/rerank.py` reranks three hand-graded searches and compares NDCG before and
+after; on those, TypeSafe went from 0.56 (retrieval order) to 1.00 and Laya to 0.84.
+
 ## "Don't know" answers
 
 A model that's split, or not sure enough, should say so rather than guess. Give any
@@ -241,11 +278,14 @@ src/semantic_operators/
   providers/typesafe.py  translates to/from the TypeSafe SDK
   providers/laya.py translates to/from the laya package
   operators.py      (higher layer) named operators: define once, combine in one call
-  bench.py          (higher layer) run labeled cases through a provider, score them
+  rerank.py         (higher layer) rerank search results by relevance
+  bench.py          (higher layer) run labeled cases through a provider, score them;
+                    ndcg for rankings
 examples/
   hello.py          one real call to Jev
   compare.py        the same questions through TypeSafe and Laya
   triage.py         ticket triage built from named operators
+  rerank.py         rerank three searches, NDCG before and after
 benchmarks/
   support_tickets.py  20 labeled messages + the questions
   run.py              runs the suite through TypeSafe and Laya
@@ -261,8 +301,8 @@ Semantic Operators is built in layers inside one package:
 
 1. **Base layer:** a clean, provider-neutral abstraction over System One
    models: `types.py`, `provider.py`, `errors.py`, `providers/`.
-2. **Higher layers:** built only on the base layer: `operators.py` (named operators)
-   and `bench.py` (benchmarking).
+2. **Higher layers:** built only on the base layer: `operators.py` (named operators),
+   `rerank.py` (reranking), and `bench.py` (benchmarking).
 
 The base layer never imports from a higher layer, so it could later be split out as its
 own package without changing how it's used.

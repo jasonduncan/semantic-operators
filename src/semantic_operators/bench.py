@@ -19,9 +19,13 @@ calls in flight at once.
 
 ``stability`` compares runs of differently worded versions of the same
 questions: how often does the decision stay the same when only the wording changes?
+
+``ndcg`` scores an ordering of documents against graded relevance labels, for
+comparing a reranked order with the original retrieval order.
 """
 
 import asyncio
+import math
 import statistics
 import time
 from collections.abc import Mapping, Sequence
@@ -182,6 +186,23 @@ def at_min_confidence(report: Report, questions: Mapping[str, Question], cases: 
     stricter = [{name: replace(a, value=None) if a.confidence < min_confidence else a
                  for name, a in case_answers.items()} for case_answers in report.answers]
     return score(questions, cases, stricter, report.latencies_ms, report.total_ms)
+
+
+def ndcg(order: Sequence[str], grades: Mapping[str, int], k: int = 10) -> float | None:
+    """How close ``order`` (document ids, best first) is to the ideal order, from 0 to 1.
+
+    ``grades`` maps id -> relevance grade (0 = irrelevant, higher = better; missing ids
+    count as 0). Only the first ``k`` positions count. Gain is ``2**grade - 1`` and each
+    position down is discounted by ``log2(position + 2)``. Returns ``None`` when no
+    document is relevant: there's no better or worse order to measure, so it's
+    undefined, not perfect.
+    """
+    def dcg(ids: Sequence[str]) -> float:
+        return math.fsum((2 ** grades.get(id, 0) - 1) / math.log2(i + 2)
+                         for i, id in enumerate(ids[:k]))
+
+    ideal = dcg(sorted(grades, key=lambda id: -grades[id]))
+    return dcg(order) / ideal if ideal else None
 
 
 def stability(reports: Sequence[Report]) -> dict[str, float]:
