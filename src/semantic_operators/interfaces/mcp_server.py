@@ -1,6 +1,6 @@
 """An MCP server over stdio with one tool, ``ask``. Needs ``pip install "semantic-operators[mcp]"``.
 
-    semop mcp --provider typesafe                # hosted Jev
+    semop mcp                                    # hosted Jev (TypeSafe, the default)
     semop mcp --provider laya --timeout 60       # local Laya
 
 The provider and model are fixed when the server starts: nothing an agent sends can

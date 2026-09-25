@@ -1,8 +1,8 @@
 """The ``semop`` command. Standard library only (the MCP server needs ``[mcp]``).
 
-    semop ask --provider typesafe < request.json
+    semop ask < request.json                          # TypeSafe (the default provider)
     semop ask --provider laya --request request.json --pretty
-    semop mcp --provider typesafe            # stdio MCP server, see mcp_server.py
+    semop mcp                                         # stdio MCP server, see mcp_server.py
 
 ``ask`` reads one JSON request (see wire.py) and prints one JSON response. Exit codes:
 0 answered (a "don't know" is an answer), 1 the provider failed or timed out,
@@ -21,7 +21,7 @@ from ..errors import ProviderError, ProviderTimeout
 from ..provider import AsyncProvider
 from ..types import Question, State
 from . import wire
-from .backends import DEFAULT_MODELS, PROVIDERS, Settings, missing_dependency, open_provider
+from .backends import DEFAULT_MODELS, DEFAULT_PROVIDER, PROVIDERS, Settings, missing_setup, open_provider
 
 OK, FAILED, INVALID = 0, 1, 2
 
@@ -29,8 +29,8 @@ OK, FAILED, INVALID = 0, 1, 2
 def main(argv: Sequence[str] | None = None, stdin: TextIO | None = None) -> int:
     args = _parser().parse_args(argv)
     settings = Settings(args.provider, args.model, args.timeout)
-    if hint := missing_dependency(settings):
-        print(f"semop: the {args.provider} provider isn't installed; {hint}", file=sys.stderr)
+    if problem := missing_setup(settings):
+        print(f"semop: {problem}", file=sys.stderr)
         return INVALID
     if args.command == "mcp":
         try:
@@ -96,8 +96,9 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     shared = argparse.ArgumentParser(add_help=False)
-    shared.add_argument("--provider", required=True, choices=PROVIDERS,
-                        help="which provider answers (fixed for the whole process)")
+    shared.add_argument("--provider", default=DEFAULT_PROVIDER, choices=PROVIDERS,
+                        help=f"which provider answers, fixed for the whole process "
+                             f"(default: {DEFAULT_PROVIDER})")
     shared.add_argument("--model", help="model to use (default: "
                         + ", ".join(f"{p}: {m}" for p, m in DEFAULT_MODELS.items()) + ")")
     shared.add_argument("--timeout", type=_seconds, metavar="SECONDS",

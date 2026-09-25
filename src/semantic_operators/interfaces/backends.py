@@ -8,6 +8,7 @@ tool can't switch a local-only server to a paid hosted API.
 
 import asyncio
 import contextlib
+import os
 import sys
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from ..provider import AsyncProvider, with_timeout
 from ..types import Answer, Question, State
 
 PROVIDERS = ("typesafe", "laya")
+DEFAULT_PROVIDER = "typesafe"
 DEFAULT_MODELS = {"typesafe": "jev-latest", "laya": "convaiinnovations/laya"}
 
 
@@ -51,13 +53,27 @@ async def open_provider(settings: Settings) -> AsyncIterator[AsyncProvider]:
         raise ValueError(f"unknown provider {settings.provider!r}; choose from {PROVIDERS}")
 
 
+def missing_setup(settings: Settings) -> str | None:
+    """What's missing before the provider can run (its package, or TypeSafe's API key),
+    as a message for the user, or ``None`` if everything's in place."""
+    return missing_dependency(settings) or missing_key(settings)
+
+
+def missing_key(settings: Settings) -> str | None:
+    if settings.provider == "typesafe" and not os.environ.get("TYPESAFE_API_KEY", "").strip():
+        return ("TypeSafe needs an API key: set TYPESAFE_API_KEY, "
+                "or use --provider laya to run a local model instead")
+    return None
+
+
 def missing_dependency(settings: Settings) -> str | None:
-    """The install hint if the provider's package isn't installed, else ``None``."""
+    """How to install the provider's package if it's missing, else ``None``."""
     module = {"typesafe": "typesafe_sdk", "laya": "laya"}[settings.provider]
     try:
         __import__(module)
     except ImportError:
-        return f'install it with: pip install "semantic-operators[{settings.provider}]"'
+        return (f"the {settings.provider} provider isn't installed; install it with: "
+                f'pip install "semantic-operators[{settings.provider}]"')
     return None
 
 

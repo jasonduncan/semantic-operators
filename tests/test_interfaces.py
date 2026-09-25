@@ -112,11 +112,15 @@ def test_encode_rounds_numbers_to_significant_digits():
 
 # The CLI
 
-def run_cli(monkeypatch, capsys, request, provider=None, args=("--provider", "typesafe")):
+def run_cli(monkeypatch, capsys, request, provider=None, args=("--provider", "typesafe"),
+            opened=None):
     @contextlib.asynccontextmanager
     async def fake_open(settings):
+        if opened is not None:
+            opened.append(settings)
         yield provider or Fake()
 
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")  # checked up front; never used here
     monkeypatch.setattr(cli, "open_provider", fake_open)
     stdin = io.StringIO(request if isinstance(request, str) else json.dumps(request))
     code = cli.main(["ask", *args], stdin=stdin)
@@ -145,8 +149,22 @@ def test_cli_provider_failures_exit_1(monkeypatch, capsys, error, code_name):
                                       "error": {"code": code_name, "message": str(error)}}
 
 
+def test_the_provider_defaults_to_typesafe(monkeypatch, capsys):
+    opened = []
+    code, _ = run_cli(monkeypatch, capsys, REQUEST, args=(), opened=opened)
+    assert code == 0 and opened[0].provider == "typesafe" and opened[0].model_name == "jev-latest"
+
+
+@pytest.mark.parametrize("command", ["ask", "mcp"])
+def test_a_missing_typesafe_key_is_a_clear_message(monkeypatch, capsys, command):
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    assert cli.main([command], stdin=io.StringIO(json.dumps(REQUEST))) == 2
+    assert "set TYPESAFE_API_KEY" in capsys.readouterr().err
+
+
 def test_mcp_without_the_extra_gives_an_install_hint(monkeypatch, capsys):
     import sys
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
     monkeypatch.setitem(sys.modules, "mcp", None)  # as if [mcp] weren't installed
     monkeypatch.delitem(sys.modules, "semantic_operators.interfaces.mcp_server", raising=False)
     assert cli.main(["mcp", "--provider", "typesafe"]) == 2

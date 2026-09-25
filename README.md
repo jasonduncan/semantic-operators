@@ -231,10 +231,11 @@ answers["department"].call.provider    # "Laya", or "TypeSafe" if it was escalat
 echo '{"state": "The payment failed and now I cannot sign in.",
        "questions": [{"name": "department", "type": "choice", "instructions": "Which team?",
                       "options": ["billing", "technical"], "min_confidence": 0.8}]}' \
-  | semop ask --provider typesafe --pretty
+  | semop ask --pretty
 ```
 
-`semop ask` prints each answer's `value` (`null` when undecided), `decided`,
+`semop ask` uses TypeSafe by default (set `TYPESAFE_API_KEY`); `--provider laya` runs the
+local model instead. It prints each answer's `value` (`null` when undecided), `decided`,
 `confidence`, and `probabilities`, plus the `call`. Exit code 0 means answered
 (including "don't know"), 1 the provider failed or timed out, 2 the request was invalid.
 
@@ -242,7 +243,7 @@ echo '{"state": "The payment failed and now I cannot sign in.",
 with Claude Code:
 
 ```sh
-claude mcp add semop -e TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- semop mcp --provider typesafe
+claude mcp add semop -e TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- semop mcp
 ```
 
 The provider is fixed when the server starts: nothing an agent sends can change it.

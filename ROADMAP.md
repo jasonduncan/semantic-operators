@@ -9,6 +9,9 @@ Nothing here is a promise of dates.
 - **Choices supplied at call time**, the last step of combining operators (below).
 - **Request IDs** in `Call`, once a provider reports them.
 
+Done in 0.10.1: `semop` defaults to `--provider typesafe`, and says clearly when
+`TYPESAFE_API_KEY` isn't set instead of failing with a traceback.
+
 Done in 0.10.0: flows. A flow is a plain Python function that asks operators through
 an `ask` handle; reading an undecided answer stops it (`Undecided`), a trace records
 every call, and `bench.run_flow` scores a whole flow against labeled outcomes.

@@ -10,21 +10,21 @@ uv tool install "semantic-operators[typesafe,mcp]"     # installs the semop comm
 ## `semop ask`
 
 ```sh
-semop ask --provider typesafe --request request.json
+semop ask --request request.json                    # TypeSafe, the default
 semop ask --provider laya --timeout 120 < request.json
-echo '{"state": "...", "questions": [...]}' | semop ask --provider typesafe --pretty
+echo '{"state": "...", "questions": [...]}' | semop ask --pretty
 ```
 
 | Option | Meaning |
 |---|---|
-| `--provider typesafe\|laya` | Required. Which provider answers. |
+| `--provider typesafe\|laya` | Which provider answers. Default: `typesafe`. |
 | `--model NAME` | Defaults: `jev-latest` (TypeSafe), `convaiinnovations/laya` (Laya). |
 | `--timeout SECONDS` | Time limit per call. For Laya, the first call includes loading the model. |
 | `--request FILE` | The request; default `-` reads stdin. |
 | `--pretty` | Indent the JSON output. |
 
-The TypeSafe provider reads `TYPESAFE_API_KEY` from the environment. Laya downloads its
-model (about 800 MB) on first use.
+The TypeSafe provider reads `TYPESAFE_API_KEY` from the environment; without it, `semop`
+says so and exits with code 2. Laya downloads its model (about 800 MB) on first use.
 
 Exit codes: **0** answered, including "don't know" answers; **1** the provider failed or
 timed out; **2** the request or command line was invalid.
@@ -99,7 +99,7 @@ A stdio MCP server with one tool, `ask`, taking the request above and returning 
 response above. Register it with Claude Code:
 
 ```sh
-claude mcp add semop -e TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- semop mcp --provider typesafe
+claude mcp add semop -e TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- semop mcp
 claude mcp add semop-local -- semop mcp --provider laya --timeout 120
 ```
 
