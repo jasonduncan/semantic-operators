@@ -20,54 +20,35 @@ is an open-weight, Jev-compatible alternative you can run locally. More are comi
 
 A provider is the service or runtime you talk to; the model is a setting.
 
+**Contents:** [Install](#install) · [Quick start](#quick-start) ·
+[Questions and answers](#questions-and-answers) · [Operators](#operators) ·
+[Flows](#flows) · [Reranking](#reranking) · [Escalation](#escalation) ·
+[Command line and MCP](#command-line-and-mcp) · [Errors and timeouts](#errors-and-timeouts) ·
+[Async](#async) · [Benchmarking](#benchmarking) · [Adding a provider](#adding-a-provider) ·
+[How it's built](#how-its-built)
+
+More in [`docs/`](https://github.com/jasonduncan/semantic-operators/tree/main/docs): [command line and MCP](https://github.com/jasonduncan/semantic-operators/blob/main/docs/cli-and-mcp.md),
+[benchmarking and results](https://github.com/jasonduncan/semantic-operators/blob/main/docs/benchmarks.md), [writing a provider](https://github.com/jasonduncan/semantic-operators/blob/main/docs/writing-a-provider.md).
+
 ## Install
 
 ```sh
 pip install "semantic-operators[typesafe]"        # TypeSafe (hosted Jev)
 pip install "semantic-operators[laya]"            # Laya (local; pulls in torch)
 pip install "semantic-operators[typesafe,laya]"   # both
+uv tool install "semantic-operators[typesafe,mcp]" # the semop command and MCP server
 ```
 
-The core alone (`pip install semantic-operators`) has no dependencies. Add `mcp` to the
-extras for the MCP server (`[typesafe,mcp]`), or install the `semop` command on its own
-with `uv tool install "semantic-operators[typesafe,mcp]"`.
-
-## The whole idea
-
-A System One model is asked **named questions about a piece of state** and returns an
-answer with probabilities for each. There are three kinds of question:
-
-| Question  | You give it                                   | `answer.value`                       |
-|-----------|-----------------------------------------------|--------------------------------------|
-| `Boolean` | instructions (+ optional true/false meanings) | `True` / `False`                     |
-| `Choice`  | instructions + named options                  | the chosen option name               |
-| `Score`   | instructions + ordered rubric levels          | expected level as a float, e.g. `1.7` |
-
-Every `Answer` also carries `probabilities` (a dict, in the question's option/level
-order), `confidence` (the probability of its own answer), `raw` (the provider's
-own answer object), and `call` (which model answered, below).
-
-A **provider** is anything with one method:
-
-```python
-def ask(self, state, questions: dict[str, Question]) -> dict[str, Answer]
-```
-
-That's the entire abstraction.
+The core alone (`pip install semantic-operators`) has no dependencies. Python 3.11+.
 
 ## Quick start
-
-```sh
-echo "TYPESAFE_API_KEY=..." > .env
-uv run --env-file .env --extra typesafe python examples/hello.py
-```
 
 ```python
 from typesafe_sdk import TypeSafeClient
 from semantic_operators import Boolean, Choice, Score
 from semantic_operators.providers.typesafe import TypeSafe
 
-with TypeSafeClient() as client:          # you create and own the SDK client
+with TypeSafeClient() as client:          # you create and own the client
     provider = TypeSafe(client)           # model defaults to "jev-latest"
     answers = provider.ask(
         "I was charged twice and I'm furious.",
@@ -90,62 +71,61 @@ import laya
 from semantic_operators.providers.laya import Laya
 
 provider = Laya(laya.load("convaiinnovations/laya"))   # or Laya(laya.Router())
-answers = provider.ask(state, questions)                # same questions, same Answer type
+answers = provider.ask(state, questions)                # same questions, same answers
 ```
 
-Compare both side by side:
+`examples/` has runnable versions (`hello.py`, `compare.py`, `triage.py`, `flow.py`,
+`rerank.py`), e.g. `uv run --env-file .env --extra typesafe python examples/hello.py`.
 
-```sh
-uv run --env-file .env --extra typesafe --extra laya python examples/compare.py
-```
+## Questions and answers
 
-## Command line and MCP
+A System One model is asked **named questions about a piece of state** (text, a JSON
+object, or an array) and answers each with probabilities. There are three kinds:
 
-The `semop` command answers one JSON request, from a file or stdin:
+| Question  | You give it                                   | `answer.value`                        |
+|-----------|-----------------------------------------------|---------------------------------------|
+| `Boolean` | instructions (+ optional `true`/`false` meanings) | `True` / `False`                  |
+| `Choice`  | instructions + named options (at least 2)     | the chosen option name                |
+| `Score`   | instructions + ordered levels, lowest first   | expected level index, e.g. `1.7` of 0..2 |
 
-```sh
-echo '{
-  "state": "The payment failed and now I cannot sign in.",
-  "questions": [
-    {"name": "is_complaint", "type": "boolean", "instructions": "Is it a complaint?"},
-    {"name": "department", "type": "choice", "instructions": "Which team?",
-     "options": [{"name": "billing", "description": "Charges and refunds"}, "technical"],
-     "min_confidence": 0.8},
-    {"name": "urgency", "type": "score", "instructions": "How urgent?",
-     "levels": ["low", "medium", "high"]}
-  ]
-}' | semop ask --provider typesafe --pretty
-```
+Every `Answer` has:
 
-It prints each answer's `value` (`null` when undecided), `decided`, `confidence`, and
-`probabilities`, rounded to 4 significant digits, plus the `call` (provider, model,
-tokens). Exit code 0 means answered, including "don't know"; 1, the provider failed or
-timed out; 2, the request was invalid (the error says where, e.g. `questions[1].options`).
-`--timeout SECONDS` limits each call.
-The TypeSafe provider reads `TYPESAFE_API_KEY` from the environment.
+- `value`, and `decided` (whether there is a value; see below)
+- `probabilities`: a dict in the question's option/level order
+- `confidence`: the probability of its own answer (for Score, of the nearest level)
+- `call`: which provider and model answered, and the tokens used
+- `raw`: the provider's own answer object
 
-`semop mcp` runs the same thing as an MCP server over stdio, with one tool, `ask`, that
-takes the same request and returns the same response. Register it with Claude Code:
+Questions check themselves when created (a bad one raises `ValueError`), and every
+answer is checked before you see it: a malformed response from a model raises
+`ProviderError`, never a confident-looking answer.
 
-```sh
-claude mcp add semop -e TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- semop mcp --provider typesafe
-claude mcp add semop-local -- semop mcp --provider laya --timeout 120     # local model
-```
-
-- **The provider is fixed when the server starts.** Nothing an agent sends can change
-  it, so a local-only server can't be switched to a paid hosted API from a tool call.
-- **The tool description tells the agent** where answers come from (and whether the
-  data leaves the machine), to treat "don't know" as unresolved rather than as no, and
-  not to reword a question or lower `min_confidence` to get the answer it wants.
-- A local model loads on the first call (a few seconds) and is reused after that.
-
-## Named operators
-
-This is where the library gets its name. An **operator** is a semantic judgment
-defined once, with a name, and used anywhere:
+**"Don't know."** A model that's split, or not sure enough, should say so rather than
+guess. Give any question a `min_confidence`; below it the answer comes back undecided
+(`value is None`, `decided is False`), with its probabilities kept. An exact tie is
+always undecided.
 
 ```python
-from semantic_operators import Boolean, Choice, Score
+department = Choice("Which team?", {"billing": None, "technical": None}, min_confidence=0.8)
+answer = provider.ask(message, {"department": department})["department"]
+if answer.decided:
+    route(answer.value)
+else:
+    send_to_a_human(answer.probabilities)   # still shows what it was leaning toward
+```
+
+Confidence is the model's own view, not a guarantee: check it with a benchmark.
+
+**Which model answered.** Aliases like `jev-latest` move, so every answer records what
+its call reported: `answers["department"].call` is
+`Call(provider='TypeSafe', model='jev-1.13.0', input_tokens=291, output_tokens=20)`.
+All answers from one call share it; anything unreported is `None`.
+
+## Operators
+
+An **operator** is a semantic judgment defined once, with a name, and used anywhere:
+
+```python
 from semantic_operators.operators import Operator, apply
 
 is_complaint = Operator("is_complaint", Boolean("Is the customer complaining?"))
@@ -153,20 +133,13 @@ urgency = Operator("urgency", Score("How urgent is this?", ["low", "medium", "hi
 
 is_complaint(provider, message).value                        # one operator, one call
 answers = apply(provider, message, [is_complaint, urgency])  # several, still one call
-answers["urgency"].value
 ```
 
-- **Combine freely.** System One models answer many questions in one pass, so `apply`
-  asks any set of operators in a single provider call. Names must be unique.
-- **Provider-neutral.** An operator doesn't hold a provider; you pass one in, so the
-  same operator runs on TypeSafe, Laya, or anything else.
-- **Wording is part of the operator.** It changes the answers (see the benchmark), so
-  keep operators in code, under version control, and benchmark them as they are.
-  `operators.questions([...])` turns them into the dict `bench.run` takes.
-- **Async:** `await op.call_async(provider, state)` and `await apply_async(...)`.
-
-`examples/triage.py` builds ticket triage from three operators, sending anything the
-model isn't sure about to a person. Add `--laya` to run the same code locally.
+- System One models answer many questions in one pass, so `apply` asks any set of
+  operators in one call. Names must be unique.
+- An operator doesn't hold a provider, so the same operator runs on any provider.
+- The wording is part of the operator: it changes the answers. Keep operators in code
+  and benchmark them as written.
 
 ## Flows
 
@@ -191,58 +164,45 @@ result = triage(provider, message)
 result.value, result.decided, result.stopped_at, result.calls, result.trace
 ```
 
-- **`ask(state, *operators)`** asks all of them in one provider call and returns their
-  values by name. `answers.full[name]` is the whole `Answer` (probabilities, confidence).
+- `ask(state, *operators)` asks them in one call and returns their values by name;
+  `answers.full[name]` is the whole `Answer`.
 - **"Don't know" stops the flow when the flow uses it.** Reading an undecided answer
-  raises `Undecided`; unless the flow catches it, the flow ends with `decided=False` and
-  `stopped_at` naming the operator. An undecided answer the flow never reads stops nothing.
-- **`result.trace`** records every call: the state and the full answers, including which
-  model answered.
-- **Each `ask` is a provider call.** Ask everything you might need up front; add a later
-  step only when it depends on an earlier answer.
-- **Async:** write `async def` and `await ask(...)`, then `await triage.call_async(provider, ...)`.
-
-`bench.run_flow(flow, provider, [(input, expected), ...])` scores a whole flow: right,
-wrong, stopped, and calls made. On the support suite, a flow routing to (team,
-priority) that stops below 80% sure of the team went 18/20 right on TypeSafe with one
-stop and one miss; on Laya it stopped on 14 of 20. `examples/flow.py` runs the triage above.
+  raises `Undecided`; unless caught, the flow ends with `decided=False` and `stopped_at`
+  naming the operator. An undecided answer the flow never reads stops nothing.
+- `result.trace` records every call: the state and the full answers.
+- Each `ask` is a provider call: ask everything you might need up front, and add a
+  later step only when it depends on an earlier answer.
 
 ## Reranking
 
-Your retrieval (search, vector index, database) finds candidates; a System One model
-reorders them by how well each one answers the query. Each candidate is scored on its
-own against a relevance rubric, one call each, and plain code sorts the results:
+Your retrieval (search, a vector index, a database) finds candidates; a System One model
+reorders them by relevance. Each candidate is scored on its own against a relevance
+rubric, one call each, and plain code sorts them:
 
 ```python
-from semantic_operators import Score
-from semantic_operators.rerank import rerank, rerank_async, reweighted
+from semantic_operators.rerank import rerank, reweighted
 
 relevance = Score("How useful is the document for answering the query?",
                   ["no useful information", "on topic but doesn't answer", "partly answers",
                    "answers with minor gaps", "fully answers"])
 
 ranking = rerank(provider, relevance, query="How do I reset my password?",
-                 candidates={"doc-1": {"title": ..., "text": ...}, ...})  # retrieval order
+                 candidates={"doc-1": {"title": ..., "text": ...},     # in retrieval order
+                             "doc-2": {"title": ..., "text": ...}})
 for r in ranking.top(10):
     r.id, r.score, r.answer.probabilities
 ```
 
-- **Each call sees only** `{"query", "document"}` (plus `"context"` if you pass one).
-  Ids and positions are never sent, so a score doesn't depend on the other candidates.
-- **Ranked by expected rubric level**, not confidence. Ties keep retrieval order, and
-  scores aren't normalized across documents: all can be relevant, or none.
-- **Nothing gets a made-up score.** Undecided or failed candidates go to `unscored`.
-  `top()` refuses a partial ranking unless you pass `allow_partial=True`, and refuses
-  scores from more than one model (`ranking.models`), since a moving alias such as
-  `jev-latest` can change mid-run.
-- **Your own level weights:** `reweighted(ranking, [0, 10, 40, 80, 100])` re-sorts from
-  the probabilities already returned, with no new calls. Uneven weights can change the
-  order, so evaluate them first.
-- **Async:** `await rerank_async(..., concurrency=8)` keeps up to 8 calls in flight.
-
-`bench.ndcg(order, grades)` scores an ordering against graded relevance labels.
-`examples/rerank.py` reranks three hand-graded searches and compares NDCG before and
-after; on those, TypeSafe went from 0.56 (retrieval order) to 1.00 and Laya to 0.84.
+- Each call sees only `{"query", "document"}` (plus `"context"` if you pass one), so a
+  score doesn't depend on the other candidates.
+- Ranked by expected rubric level, not confidence; ties keep retrieval order; scores
+  aren't normalized across documents (all can be relevant, or none).
+- Undecided or failed candidates go to `ranking.unscored`, never a made-up score.
+  `top()` refuses a partial ranking unless `allow_partial=True`, and refuses scores from
+  more than one model (`ranking.models`).
+- `reweighted(ranking, [0, 10, 40, 80, 100])` re-sorts by your own level weights from
+  the probabilities already returned. `rerank_async(..., concurrency=8)` runs calls in
+  parallel. `bench.ndcg(order, grades)` checks an ordering against graded labels.
 
 ## Escalation
 
@@ -256,215 +216,122 @@ answers = provider.ask(message, questions)
 answers["department"].call.provider    # "Laya", or "TypeSafe" if it was escalated
 ```
 
-- Every question goes to the first provider. Answers with confidence under
-  `escalate_below` (or undecided) are re-asked of the next provider, **all in one call**,
-  and so on down the list. The last provider's answer stands.
-- **Two thresholds, two decisions:** `escalate_below` decides when to ask a stronger
-  model; a question's `min_confidence` decides when the final answer is a "don't know".
-- It escalates when a model is **unsure**, never when it **fails**: a `ProviderError`
-  propagates, because quietly routing around an outage would hide it.
-- It's a provider, so operators, `rerank`, and benchmarks work unchanged.
-  `cascade_async` does the same for async providers.
+- Answers with confidence under `escalate_below` (or undecided) are re-asked of the next
+  provider, all in one call. The last provider's answer stands.
+- `escalate_below` decides when to ask a stronger model; a question's `min_confidence`
+  still decides when the final answer is a "don't know".
+- It escalates when a model is unsure, never when it fails: errors propagate.
+- It's only as good as the first model's confidence, and a message costs a call to the
+  stronger model if any of its questions escalates. Measure a pairing before relying
+  on it ([results](https://github.com/jasonduncan/semantic-operators/blob/main/docs/benchmarks.md)).
 
-It's only as good as the first model's confidence, and a message costs a call to the
-stronger model if *any* of its questions escalates. `benchmarks/run_cascade.py` measures
-both. On the support suite, Laya first with `escalate_below=0.9` came within one answer
-of TypeSafe alone, but still needed TypeSafe for 20 of 20 messages: Laya was unsure of
-something in almost every one, and confidently wrong on others. The mechanism works;
-whether a pairing pays off is a benchmark question.
+## Command line and MCP
 
-## "Don't know" answers
-
-A model that's split, or not sure enough, should say so rather than guess. Give any
-question a `min_confidence`; below it, the answer comes back **undecided**
-(`value is None`, `decided is False`), with its probabilities kept:
-
-```python
-department = Choice("Which team?", {"billing": None, "technical": None},
-                    min_confidence=0.8)
-answer = provider.ask(message, {"department": department})["department"]
-
-if answer.decided:
-    route(answer.value)
-else:
-    send_to_a_human(answer.probabilities)   # still shows what it was leaning toward
+```sh
+echo '{"state": "The payment failed and now I cannot sign in.",
+       "questions": [{"name": "department", "type": "choice", "instructions": "Which team?",
+                      "options": ["billing", "technical"], "min_confidence": 0.8}]}' \
+  | semop ask --provider typesafe --pretty
 ```
 
-An exact tie (a Boolean at 0.5, two options equally likely) is always undecided.
-Confidence is the model's own view, not a guarantee. `benchmarks/run_confidence.py`
-checks whether it means anything: on the support suite, TypeSafe's urgency answers at
-`min_confidence=0.8` were right 10 of 10 times (answering half the cases), while
-Laya's were right 4 of 7.
+`semop ask` prints each answer's `value` (`null` when undecided), `decided`,
+`confidence`, and `probabilities`, plus the `call`. Exit code 0 means answered
+(including "don't know"), 1 the provider failed or timed out, 2 the request was invalid.
 
-## Which model answered
+`semop mcp` serves the same request and response as an MCP tool, `ask`. Register it
+with Claude Code:
 
-`jev-latest` moves over time, so every answer records what its provider call reported:
-
-```python
-answers["department"].call
-# Call(provider='TypeSafe', model='jev-1.13.0', input_tokens=291, output_tokens=20)
+```sh
+claude mcp add semop -e TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- semop mcp --provider typesafe
 ```
 
-All answers from one call share one `Call`. `model` is exactly what the provider
-reported, which can differ from what you asked for (above, `jev-latest`). Laya reports a
-fixed agent name (`laya-rl-agent`), not which checkpoint answered. Anything a provider
-doesn't report is `None`.
+The provider is fixed when the server starts: nothing an agent sends can change it.
+The full request/response reference, options, and agent guidance are in
+[docs/cli-and-mcp.md](https://github.com/jasonduncan/semantic-operators/blob/main/docs/cli-and-mcp.md).
 
-## Errors
+## Errors and timeouts
 
-Every provider raises one error type, whatever went wrong underneath (network, bad
-key, rate limit, a model failure, an unexpected response):
+Every provider raises one error type, whatever went wrong underneath (network, bad key,
+rate limit, model failure, malformed response):
 
 ```python
-from semantic_operators import ProviderError
+from semantic_operators import ProviderError, ProviderTimeout, with_timeout
 
 try:
     answers = provider.ask(state, questions)
 except ProviderError as error:
-    error.provider     # "TypeSafe" or "Laya"
-    error.__cause__    # the original exception, for details
+    error.provider, error.__cause__     # "TypeSafe", and the original exception
 ```
 
-Provider output is checked before it becomes an `Answer`: probabilities must be finite,
-between 0 and 1, sum to 1 (allowing for the providers' rounding), and agree with the
-answer. A malformed response raises `ProviderError` rather than looking like a confident
-answer. Questions check themselves too: a `Choice` needs at least two distinct options,
-a `Score` at least two distinct levels, and a bad definition raises `ValueError`.
+- `with_timeout(async_provider, 2.0)` limits each call of any async provider and raises
+  `ProviderTimeout` (a `ProviderError` and a `TimeoutError`). It's still a provider, so
+  the limit carries through operators, flows, and reranking.
+- Sync code sets its timeout on the client (`TypeSafeClient(timeout=5)`). A local model
+  can't be interrupted mid-prediction, and a hosted call may still finish on the server.
+- Retries belong to the client you build. The TypeSafe SDK retries by default;
+  `TypeSafeClient(retry=RetryPolicy(max_retries=0))` turns that off.
 
-Retries belong to the client you build. The TypeSafe SDK retries by default; to have
-every failure reach you (for example, when something above you does its own retrying),
-turn that off (`timeout` here is the SDK's total budget across retries):
+## Async
 
-```python
-TypeSafeClient(retry=RetryPolicy(max_retries=0, timeout=10.0))
-```
+Every provider has an async twin with the same contract, `await provider.ask(...)`:
+`AsyncTypeSafe(AsyncTypeSafeClient())` and `AsyncLaya(model)`. So do the higher layers:
+`apply_async`, `op.call_async`, `rerank_async`, `cascade_async`, and async flows
+(`async def`, then `await flow.call_async(provider, ...)`).
 
-## Timeouts
+`AsyncLaya` runs the local model in a worker thread, one call at a time, so concurrency
+speeds up a hosted API but not a single local model.
 
-Give any async provider a time limit per call:
-
-```python
-from semantic_operators import ProviderTimeout, with_timeout
-
-provider = with_timeout(AsyncTypeSafe(client), 2.0)   # still a provider
-try:
-    answers = await provider.ask(state, questions)
-except ProviderTimeout:        # also a ProviderError and a TimeoutError
-    ...
-```
-
-Because it's just a provider, the limit carries through to operators, `apply_async`,
-and `rerank_async` (a candidate that runs out of time is simply unscored). For a limit
-on a whole batch of work, wrap it in `asyncio.timeout(...)`.
-
-Stopping to wait isn't always stopping the work: a hosted call may still finish (and
-be billed) on the server, and a local model finishes its current prediction in the
-background while later calls wait their turn. Sync code has no neutral timeout: set it
-on the client you build (`TypeSafeClient(timeout=5)`, which also comes back as
-`ProviderTimeout`). A local model can't be interrupted mid-prediction.
-
-## Benchmark
-
-`bench.run(provider, questions, cases)` asks each labeled case all questions in one call
-and reports, per question, **accuracy** (Score values are rounded to the nearest level)
-and **p(correct)**, the average probability the provider gave the right answer, plus
-latency and every miss. Undecided answers are counted separately (`answered`), not as
-misses. `bench.at_min_confidence(report, questions, cases, 0.8)` re-scores a run at a
-stricter threshold without asking the provider again.
+## Benchmarking
 
 ```sh
 uv run --env-file .env --extra typesafe --extra laya python benchmarks/run.py
 ```
 
-`benchmarks/support_tickets.py` holds 20 hand-written, hand-labeled support messages
-and the same 3 questions in three wordings. `bench.stability(reports)` reports how often
-a provider's decision stays the same when only the wording changes (labels play no part).
-It's a smoke test, not a verdict: small, authored, one person's labels.
+`semantic_operators.bench` scores providers against labeled cases: accuracy, how often
+they said "don't know", the probability they gave the right answer, latency, and how
+stable their answers are when only the wording changes. It also scores whole flows
+(`run_flow`) and rankings (`ndcg`). `benchmarks/` holds a 20-message support suite and
+the scripts. The tools and everything measured so far are in
+[docs/benchmarks.md](https://github.com/jasonduncan/semantic-operators/blob/main/docs/benchmarks.md); in short, both models are sensitive to
+wording, and TypeSafe's confidence tracks correctness far better than Laya's.
 
-## Async
+## Adding a provider
 
-Every provider has an async twin with the same contract, `await provider.ask(...)`:
+A provider is anything with one method:
 
 ```python
-from typesafe_sdk import AsyncTypeSafeClient
-from semantic_operators.providers.typesafe import AsyncTypeSafe
-from semantic_operators.providers.laya import AsyncLaya
-
-async with AsyncTypeSafeClient() as client:
-    answers = await AsyncTypeSafe(client).ask(state, questions)
+def ask(self, state, questions: Mapping[str, Question]) -> dict[str, Answer]: ...
 ```
 
-`AsyncLaya` runs the local model in a worker thread, one call at a time. Concurrency
-speeds up a hosted API (many requests in flight), not a single local model.
-`bench.run_async(provider, questions, cases, concurrency=8)` benchmarks async providers:
+Translate the questions into the model's API, make one call, build each answer with
+`make_answer` (which enforces the rules above), and raise `ProviderError` for any
+failure. Everything else (operators, flows, reranking, benchmarks, `semop`) then works
+with it unchanged. A skeleton and the rules are in
+[docs/writing-a-provider.md](https://github.com/jasonduncan/semantic-operators/blob/main/docs/writing-a-provider.md).
 
-```sh
-uv run --env-file .env --extra typesafe --extra laya python benchmarks/run_async.py
-```
-
-## Layout
+## How it's built
 
 ```
 src/semantic_operators/
-  types.py          Boolean, Choice, Score, Answer, Call, make_answer: our vocabulary
-  provider.py       Provider and AsyncProvider (one method each)
-  errors.py         ProviderError, the one error every provider raises
-  providers/typesafe.py  translates to/from the TypeSafe SDK
-  providers/laya.py translates to/from the laya package
-  operators.py      (higher layer) named operators: define once, combine in one call
-  rerank.py         (higher layer) rerank search results by relevance
-  cascade.py        (higher layer) escalate unsure answers to a stronger provider
-  flows.py          (higher layer) decisions built from operators, with a trace
-  bench.py          (higher layer) run labeled cases through a provider, score them;
-                    ndcg for rankings; run_flow for whole flows
-  interfaces/       (application) the semop CLI and MCP server: wire.py (the JSON
-                    shape), backends.py (providers from flags), cli.py, mcp_server.py
-examples/
-  hello.py          one real call to Jev
-  compare.py        the same questions through TypeSafe and Laya
-  triage.py         ticket triage built from named operators
-  rerank.py         rerank three searches, NDCG before and after
-  flow.py           ticket triage as a flow, with a second step only when needed
-benchmarks/
-  support_tickets.py  20 labeled messages + the questions
-  run.py              runs the suite through TypeSafe and Laya
-  run_async.py        concurrency, and both providers at once
-  run_confidence.py   the "don't know" trade-off at several min_confidence levels
-  run_cascade.py      Laya first, TypeSafe for what Laya wasn't sure of
-  run_flow.py         a whole flow against labeled outcomes
-tests/                offline tests (uv run --extra typesafe --extra mcp pytest); CI runs them
-ROADMAP.md            where this is headed
+  types.py, provider.py, errors.py   base: questions, answers, the provider protocol
+  providers/typesafe.py, laya.py     base: one translation file per provider
+  operators.py, flows.py             named operators and flows
+  rerank.py, cascade.py              reranking and escalation
+  bench.py                           benchmarking
+  interfaces/                        the semop CLI and MCP server
+examples/  benchmarks/  tests/  docs/  ROADMAP.md
 ```
 
-## Layers
+- **Layers:** the base layer never imports anything above it; the higher layers build
+  only on it; `interfaces/` is an application that uses the library like your own code
+  would, and nothing in the library imports it.
+- **The library never reads API keys or environment variables.** You build the client.
+  (`semop` does read them, since it builds the client for you.)
+- **The core has no dependencies.** Each provider's SDK is an optional extra.
+- **Our names, not a provider's:** `Boolean`, not `noul`.
 
-Semantic Operators is built in layers inside one package:
-
-1. **Base layer:** a clean, provider-neutral abstraction over System One
-   models: `types.py`, `provider.py`, `errors.py`, `providers/`.
-2. **Higher layers:** built only on the base layer: `operators.py` (named operators),
-   `rerank.py` (reranking), `cascade.py` (escalation), `flows.py` (flows), and
-   `bench.py` (benchmarking).
-
-3. **Application:** `interfaces/`, the `semop` CLI and MCP server. It uses the library
-   the way your own code does, and it's the only part that reads the environment.
-
-The base layer never imports from a higher layer, and nothing in the library imports
-`interfaces/`, so the base could later be split out as its own package without
-changing how it's used.
-
-## Rules
-
-- The library never reads API keys or environment variables. You build the client.
-  (The `semop` application does, since it builds the client for you.)
-- The core has no dependencies. Each provider's SDK is an optional extra (`[typesafe]`, `[laya]`).
-- Our names, not the provider's: `Boolean`, not `noul`.
-
-## Not here yet (on purpose)
-
-Choices supplied at call time ("which of these five documents answers the question?"),
-suites as data files, more MCP tools (reranking, your named operators), and a Claude
-provider as the top of a cascade. See [ROADMAP.md](ROADMAP.md).
+Run the offline tests with `uv run --extra typesafe --extra mcp pytest`; CI runs them on
+Python 3.11 and 3.13 before every release. Next steps are in [ROADMAP.md](https://github.com/jasonduncan/semantic-operators/blob/main/ROADMAP.md).
 
 ## License
 
