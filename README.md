@@ -90,6 +90,35 @@ Compare both side by side:
 uv run --env-file .env --extra typesafe --extra laya python examples/compare.py
 ```
 
+## Named operators
+
+This is where the library gets its name. An **operator** is a semantic judgment
+defined once, with a name, and used anywhere:
+
+```python
+from semantic_operators import Boolean, Choice, Score
+from semantic_operators.operators import Operator, apply
+
+is_complaint = Operator("is_complaint", Boolean("Is the customer complaining?"))
+urgency = Operator("urgency", Score("How urgent is this?", ["low", "medium", "high"]))
+
+is_complaint(provider, message).value                        # one operator, one call
+answers = apply(provider, message, [is_complaint, urgency])  # several, still one call
+answers["urgency"].value
+```
+
+- **Combine freely.** System One models answer many questions in one pass, so `apply`
+  asks any set of operators in a single provider call. Names must be unique.
+- **Provider-neutral.** An operator doesn't hold a provider; you pass one in, so the
+  same operator runs on TypeSafe, Laya, or anything else.
+- **Wording is part of the operator.** It changes the answers (see the benchmark), so
+  keep operators in code, under version control, and benchmark them as they are.
+  `operators.questions([...])` turns them into the dict `bench.run` takes.
+- **Async:** `await op.call_async(provider, state)` and `await apply_async(...)`.
+
+`examples/triage.py` builds ticket triage from three operators, sending anything the
+model isn't sure about to a person. Add `--laya` to run the same code locally.
+
 ## "Don't know" answers
 
 A model that's split, or not sure enough, should say so rather than guess. Give any
@@ -176,10 +205,12 @@ src/semantic_operators/
   errors.py         ProviderError, the one error every provider raises
   providers/typesafe.py  translates to/from the TypeSafe SDK
   providers/laya.py translates to/from the laya package
+  operators.py      (higher layer) named operators: define once, combine in one call
   bench.py          (higher layer) run labeled cases through a provider, score them
 examples/
   hello.py          one real call to Jev
   compare.py        the same questions through TypeSafe and Laya
+  triage.py         ticket triage built from named operators
 benchmarks/
   support_tickets.py  20 labeled messages + the questions
   run.py              runs the suite through TypeSafe and Laya
@@ -194,8 +225,8 @@ Semantic Operators is built in layers inside one package:
 
 1. **Base layer:** a clean, provider-neutral abstraction over System One
    models: `types.py`, `provider.py`, `errors.py`, `providers/`.
-2. **Higher layers:** built only on the base layer. So far: `bench.py`. Later: reusable
-   named operators and composition.
+2. **Higher layers:** built only on the base layer: `operators.py` (named operators)
+   and `bench.py` (benchmarking).
 
 The base layer never imports from a higher layer, so it could later be split out as its
 own package without changing how it's used.
@@ -208,8 +239,8 @@ own package without changing how it's used.
 
 ## Not here yet (on purpose)
 
-Reusable named operators, and batching many inputs into one call (Laya's
-`predict_batch`). Each will be added as its own small step.
+Batching many inputs into one call (Laya's `predict_batch`). It will be added as its
+own small step.
 
 ## License
 
