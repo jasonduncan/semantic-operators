@@ -22,7 +22,7 @@ A provider is the service or runtime you talk to; the model is a setting.
 
 **Contents:** [Install](#install) · [Quick start](#quick-start) ·
 [Questions and answers](#questions-and-answers) · [Operators](#operators) ·
-[Flows](#flows) · [Reranking](#reranking) · [Escalation](#escalation) ·
+[Flows](#flows) · [Filtering](#filtering) · [Reranking](#reranking) · [Escalation](#escalation) ·
 [Command line and MCP](#command-line-and-mcp) · [Errors and timeouts](#errors-and-timeouts) ·
 [Async](#async) · [Benchmarking](#benchmarking) · [Adding a provider](#adding-a-provider) ·
 [How it's built](#how-its-built)
@@ -36,7 +36,7 @@ More in [`docs/`](https://github.com/jasonduncan/semantic-operators/tree/main/do
 pip install "semantic-operators[typesafe]"        # TypeSafe (hosted Jev)
 pip install "semantic-operators[laya]"            # Laya (local; pulls in torch)
 pip install "semantic-operators[typesafe,laya]"   # both
-uv tool install "semantic-operators[typesafe,mcp]" # the semop command and MCP server
+uv tool install "semantic-operators[typesafe,mcp]" # semop, semfilter, and the MCP server
 ```
 
 The core alone (`pip install semantic-operators`) has no dependencies. Python 3.11+.
@@ -172,6 +172,34 @@ result.value, result.decided, result.stopped_at, result.calls, result.trace
 - `result.trace` records every call: the state and the full answers.
 - Each `ask` is a provider call: ask everything you might need up front, and add a
   later step only when it depends on an earlier answer.
+
+## Filtering
+
+Grep by meaning: ask one yes/no question of every item, and keep the ones the model says
+yes to. From the shell, `semfilter` (also `semop filter`) reads items from stdin, one
+per line, and prints the matches in input order:
+
+```sh
+ls ~/Downloads | semfilter "Is this an installer or other throwaway download?"
+find notes -name '*.md' | semfilter --files "Does this note mention the Q3 launch?"
+```
+
+- Each item is asked separately, one call each, 8 in flight by default, so items can't
+  influence each other's answers.
+- `--min` defaults to 0.8: below it an item is **unsure**, never a match. Unsure, failed,
+  and skipped items (binary or unreadable files) are listed on stderr, followed by a
+  summary saying how many items were sent and to which model. `--keep-unsure` prints
+  unsure items too.
+- Exit codes work like grep's: 0 something printed, 1 nothing matched, 2 bad input
+  (nothing sent), 3 some items failed.
+- Other options: `--jsonl`, `--context TEXT`, `-v`, `--records` (one JSON line per item
+  with its probability), `--jobs N`, `--max-chars N`, `--dry-run`.
+
+It's built for agents too: an agent can narrow hundreds of files to the few worth
+reading before it reads any, since the file contents go to the model, not into the
+agent's context. From Python, `filtering.filter_items(provider, question, items)` (and
+`filter_items_async`) returns every item's outcome: match, no, unsure, or failed.
+The [design doc](https://github.com/jasonduncan/semantic-operators/blob/main/docs/design/semop-filter.md) has the details and measurements.
 
 ## Reranking
 
@@ -317,9 +345,10 @@ src/semantic_operators/
   types.py, provider.py, errors.py   base: questions, answers, the provider protocol
   providers/typesafe.py, laya.py     base: one translation file per provider
   operators.py, flows.py             named operators and flows
-  rerank.py, cascade.py              reranking and escalation
+  filtering.py, rerank.py            filtering and reranking (one call per item)
+  cascade.py                         escalation
   bench.py                           benchmarking
-  interfaces/                        the semop CLI and MCP server
+  interfaces/                        the semop and semfilter commands, and the MCP server
 examples/  benchmarks/  tests/  docs/  ROADMAP.md
 ```
 

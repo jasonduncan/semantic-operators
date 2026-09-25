@@ -93,6 +93,39 @@ rejected, so a typo fails loudly, and errors say where: `questions[1].options: .
 A failure is `{"error": {"code", "message"}}`, with code `invalid_request`,
 `provider_error`, or `timeout`.
 
+## `semfilter` (`semop filter`)
+
+Grep by meaning: one yes/no question asked of every item on stdin, one per line. The
+matches print in input order, exactly as read.
+
+```sh
+ls ~/Downloads | semfilter "Is this an installer or other throwaway download?"
+find logs -name '*.md' | semfilter --files --keep-unsure "Does this log record a failed release?"
+jq -c '.[]' items.json | semfilter --jsonl --records "Is this a phishing email?"
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--provider`, `--model`, `--timeout` | `typesafe` | As for `semop ask` |
+| `--min P` | `0.8` | Below it an item is **unsure**, never a match |
+| `--files` | off | Each line is a path; send `{"path", "text"}` |
+| `--jsonl` | off | Each line is a JSON value; send it as the item |
+| `--no-path` | off | With `--files`, send only the text |
+| `--context TEXT` | none | Shared background: each item becomes `{"context", "item"}` |
+| `--max-chars N` | `32000` | Cut each item's text, and report it |
+| `--keep-unsure` | off | Print unsure items with the matches |
+| `-v`, `--invert` | off | Print the confident no's instead |
+| `--records` | off | One JSON line per item: `item`, `outcome`, `p_true`, `confidence`, `cut`, `model`, `error` |
+| `--jobs N` | `8` | Calls in flight at once |
+| `--dry-run` | off | Show what would be sent; send nothing (needs no API key) |
+| `-q` | off | Only the summary line on stderr |
+
+stderr lists unsure (`?`), failed (`!`), skipped (`-`: binary, unreadable, or not UTF-8),
+and cut (`~`) items, then a summary with the counts and how many items went to which
+model. Exit codes are grep-style: **0** something printed, **1** nothing matched, **2**
+bad command line or input (nothing sent), **3** some items failed (the rest are still
+printed). The [design doc](https://github.com/jasonduncan/semantic-operators/blob/main/docs/design/semop-filter.md) explains the choices.
+
 ## `semop mcp`
 
 A stdio MCP server with one tool, `ask`, taking the request above and returning the

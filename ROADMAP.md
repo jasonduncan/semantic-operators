@@ -9,6 +9,11 @@ Nothing here is a promise of dates.
 - **Choices supplied at call time**, the last step of combining operators (below).
 - **Request IDs** in `Call`, once a provider reports them.
 
+Done in 0.11.0: filtering. `semfilter` (also `semop filter`) asks one yes/no question of
+every item on stdin, one call each, and prints the matches, grep-style;
+`filtering.filter_items` is the library side. The per-item machinery is shared with
+`rerank`. Design and measurements: `docs/design/semop-filter.md`.
+
 Done in 0.10.1: `semop` defaults to `--provider typesafe`, and says clearly when
 `TYPESAFE_API_KEY` isn't set instead of failing with a traceback.
 

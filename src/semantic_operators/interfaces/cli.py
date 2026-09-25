@@ -2,11 +2,12 @@
 
     semop ask < request.json                          # TypeSafe (the default provider)
     semop ask --provider laya --request request.json --pretty
+    ls | semop filter "Is this a throwaway download?"  # grep by meaning; see filter_cli.py
     semop mcp                                         # stdio MCP server, see mcp_server.py
 
 ``ask`` reads one JSON request (see wire.py) and prints one JSON response. Exit codes:
 0 answered (a "don't know" is an answer), 1 the provider failed or timed out,
-2 the request or command line was invalid.
+2 the request or command line was invalid. ``filter`` has grep-style exit codes.
 """
 
 import argparse
@@ -20,7 +21,7 @@ from typing import Any, TextIO
 from ..errors import ProviderError, ProviderTimeout
 from ..provider import AsyncProvider
 from ..types import Question, State
-from . import wire
+from . import filter_cli, wire
 from .backends import DEFAULT_MODELS, DEFAULT_PROVIDER, PROVIDERS, Settings, missing_setup, open_provider
 
 OK, FAILED, INVALID = 0, 1, 2
@@ -29,9 +30,12 @@ OK, FAILED, INVALID = 0, 1, 2
 def main(argv: Sequence[str] | None = None, stdin: TextIO | None = None) -> int:
     args = _parser().parse_args(argv)
     settings = Settings(args.provider, args.model, args.timeout)
-    if problem := missing_setup(settings):
+    dry_run = getattr(args, "dry_run", False)  # sends nothing, so needs no provider setup
+    if not dry_run and (problem := missing_setup(settings)):
         print(f"semop: {problem}", file=sys.stderr)
         return INVALID
+    if args.command == "filter":
+        return filter_cli.run(args, settings, stdin or sys.stdin)
     if args.command == "mcp":
         try:
             from .mcp_server import serve
@@ -109,8 +113,14 @@ def _parser() -> argparse.ArgumentParser:
     ask_command.add_argument("--request", default="-", metavar="FILE",
                              help="request file (default: read stdin)")
     ask_command.add_argument("--pretty", action="store_true", help="indent the JSON output")
+    filter_cli.add_parser(commands, shared)
     commands.add_parser("mcp", parents=[shared], help="run an MCP server over stdio")
     return parser
+
+
+def filter_main() -> int:
+    """The ``semfilter`` command: ``semop filter`` under a shorter name."""
+    return main(["filter", *sys.argv[1:]])
 
 
 def _seconds(text: str) -> float:

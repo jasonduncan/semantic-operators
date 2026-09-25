@@ -29,17 +29,15 @@ ranking whose answers came from different models (a moving alias such as
 ``jev-latest`` can change mid-run), since those scores aren't on one scale.
 """
 
-import asyncio
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ._each import ask_each, ask_each_async, check_concurrency
 from .errors import ProviderError
 from .provider import AsyncProvider, Provider
 from .types import Answer, Score
-
-_NAME = "relevance"
 
 
 @dataclass(frozen=True)
@@ -82,13 +80,7 @@ def rerank(provider: Provider, question: Score, *, query: str, candidates: Mappi
            context: Any = None) -> Ranking:
     """Score every candidate against ``query``, one call each, and rank them."""
     states = _states(question, query, candidates, context)
-    results: list[Answer | ProviderError] = []
-    for state in states.values():
-        try:
-            results.append(provider.ask(state, {_NAME: question})[_NAME])
-        except ProviderError as error:
-            results.append(error)
-    return _rank(question, list(states), results)
+    return _rank(question, list(states), ask_each(provider, question, list(states.values())))
 
 
 async def rerank_async(provider: AsyncProvider, question: Score, *, query: str,
@@ -99,21 +91,10 @@ async def rerank_async(provider: AsyncProvider, question: Score, *, query: str,
     A ``ProviderError`` only affects its own candidate. Any other exception cancels
     the remaining calls and propagates.
     """
-    if not isinstance(concurrency, int) or isinstance(concurrency, bool) or concurrency < 1:
-        raise ValueError("concurrency must be a positive integer")
+    check_concurrency(concurrency)
     states = _states(question, query, candidates, context)
-    slots = asyncio.Semaphore(concurrency)
-
-    async def one(state: dict[str, Any]) -> Answer | ProviderError:
-        async with slots:
-            try:
-                return (await provider.ask(state, {_NAME: question}))[_NAME]
-            except ProviderError as error:
-                return error
-
-    async with asyncio.TaskGroup() as group:
-        tasks = [group.create_task(one(state)) for state in states.values()]
-    return _rank(question, list(states), [task.result() for task in tasks])
+    results = await ask_each_async(provider, question, list(states.values()), concurrency)
+    return _rank(question, list(states), results)
 
 
 def reweighted(ranking: Ranking, weights: Sequence[float]) -> Ranking:
