@@ -1107,23 +1107,23 @@ wheels = [
 
 [[package]]
 name = "semantic-operators"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
-jev = [
-    { name = "typesafe-sdk" },
-]
 laya = [
     { name = "laya" },
+]
+typesafe = [
+    { name = "typesafe-sdk" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "laya", marker = "extra == 'laya'", specifier = ">=0.3.20" },
-    { name = "typesafe-sdk", marker = "extra == 'jev'", specifier = ">=0.7.1" },
+    { name = "typesafe-sdk", marker = "extra == 'typesafe'", specifier = ">=0.7.1" },
 ]
-provides-extras = ["jev", "laya"]
+provides-extras = ["typesafe", "laya"]
 
 [[package]]
 name = "setuptools"

@@ -1,7 +1,7 @@
-"""Run the support-ticket benchmark through Jev and Laya, in every wording.
+"""Run the support-ticket benchmark through TypeSafe (Jev) and Laya, in every wording.
 
-Run:  uv run --env-file .env --extra jev --extra laya python benchmarks/run.py
-Makes 63 Jev API calls (3 wordings x (1 warm-up + 20 cases)).
+Run:  uv run --env-file .env --extra typesafe --extra laya python benchmarks/run.py
+Makes 63 TypeSafe API calls (3 wordings x (1 warm-up + 20 cases)).
 """
 
 import statistics
@@ -11,8 +11,8 @@ from typesafe_sdk import TypeSafeClient
 
 from semantic_operators import Provider
 from semantic_operators.bench import run, stability
-from semantic_operators.providers.jev import Jev
 from semantic_operators.providers.laya import Laya
+from semantic_operators.providers.typesafe import TypeSafe
 from support_tickets import cases, wordings
 
 
@@ -33,6 +33,6 @@ def benchmark(name: str, provider: Provider) -> None:
 
 
 with TypeSafeClient() as client:
-    benchmark("Jev", Jev(client))
+    benchmark("TypeSafe (jev-latest)", TypeSafe(client))
 
 benchmark("Laya", Laya(laya.load("convaiinnovations/laya")))

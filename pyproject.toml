@@ -1,7 +1,7 @@
 [project]
 name = "semantic-operators"
-version = "0.1.0"
-description = "One small, provider-neutral interface for System One models (Jev, Laya, and compatibles)."
+version = "0.2.0"
+description = "One small, provider-neutral interface for System One models (TypeSafe's Jev, Laya, and compatibles)."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -26,7 +26,7 @@ Source = "https://github.com/jasonduncan/semantic-operators"
 Issues = "https://github.com/jasonduncan/semantic-operators/issues"
 
 [project.optional-dependencies]
-jev = ["typesafe-sdk>=0.7.1"]
+typesafe = ["typesafe-sdk>=0.7.1"]
 laya = ["laya>=0.3.20"]
 
 [build-system]

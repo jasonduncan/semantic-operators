@@ -1,6 +1,6 @@
-"""Ask Jev (hosted) and Laya (local) the same questions, through the same interface.
+"""Ask Jev (hosted by TypeSafe) and Laya (local) the same questions, through the same interface.
 
-Run:  uv run --env-file .env --extra jev --extra laya python examples/compare.py
+Run:  uv run --env-file .env --extra typesafe --extra laya python examples/compare.py
 The first run downloads the Laya checkpoint (~800 MB) from Hugging Face.
 """
 
@@ -10,8 +10,8 @@ import laya
 from typesafe_sdk import TypeSafeClient
 
 from semantic_operators import Boolean, Choice, Provider, Score
-from semantic_operators.providers.jev import Jev
 from semantic_operators.providers.laya import Laya
+from semantic_operators.providers.typesafe import TypeSafe
 
 message = "I was charged twice for my subscription this month and I'm furious."
 
@@ -43,7 +43,7 @@ def show(name: str, provider: Provider) -> None:
 print(f"Message: {message}")
 
 with TypeSafeClient() as client:
-    show("Jev", Jev(client))
+    show("TypeSafe (jev-latest)", TypeSafe(client))
 
 model = laya.load("convaiinnovations/laya")  # English checkpoint, runs on this machine
 laya_provider = Laya(model)

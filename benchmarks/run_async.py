@@ -1,7 +1,7 @@
 """What concurrency buys each provider, and both providers benchmarked at once.
 
-Run:  uv run --env-file .env --extra jev --extra laya python benchmarks/run_async.py
-Makes 63 Jev API calls (3 runs x (1 warm-up + 20 cases)).
+Run:  uv run --env-file .env --extra typesafe --extra laya python benchmarks/run_async.py
+Makes 63 TypeSafe API calls (3 runs x (1 warm-up + 20 cases)).
 """
 
 import asyncio
@@ -11,8 +11,8 @@ import laya
 from typesafe_sdk import AsyncTypeSafeClient
 
 from semantic_operators.bench import Report, run_async
-from semantic_operators.providers.jev import AsyncJev
 from semantic_operators.providers.laya import AsyncLaya
+from semantic_operators.providers.typesafe import AsyncTypeSafe
 from support_tickets import cases, questions
 
 
@@ -26,21 +26,21 @@ def show(label: str, report: Report) -> None:
 
 async def main() -> None:
     async with AsyncTypeSafeClient() as client:
-        jev = AsyncJev(client)
+        typesafe = AsyncTypeSafe(client)
         lay = AsyncLaya(laya.load("convaiinnovations/laya"))
 
-        for name, provider in [("Jev", jev), ("Laya", lay)]:
+        for name, provider in [("TypeSafe (jev-latest)", typesafe), ("Laya", lay)]:
             print(f"\n{name}")
             for concurrency in (1, 8):
                 report = await run_async(provider, questions, cases, concurrency=concurrency)
                 show(f"concurrency {concurrency}", report)
 
         print("\nBoth at once (concurrency 8 each)")
-        jev_report, laya_report = await asyncio.gather(
-            run_async(jev, questions, cases, concurrency=8),
+        typesafe_report, laya_report = await asyncio.gather(
+            run_async(typesafe, questions, cases, concurrency=8),
             run_async(lay, questions, cases, concurrency=8),
         )
-        show("Jev", jev_report)
+        show("TypeSafe", typesafe_report)
         show("Laya", laya_report)
 
 
