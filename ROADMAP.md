@@ -50,7 +50,7 @@ question that depends on A's answer. So, in order:
    and `answer.call` shows who answered. It escalates when the model is *unsure*, never
    when it *fails* (that would hide an outage). It's only as good as the first model's
    confidence, which the benchmark measures per question.
-2. **Flows (0.9.0).** A flow is a plain Python function that asks operators through
+2. **Flows (0.10.0).** A flow is a plain Python function that asks operators through
    an `ask` handle. The library records a trace (what was asked, which provider
    answered, what came back), benchmarks a whole flow against labeled outcomes, and
    "don't know" stops the flow rather than being guessed past.
