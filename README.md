@@ -218,16 +218,40 @@ except ProviderError as error:
 Provider output is checked before it becomes an `Answer`: probabilities must be finite,
 between 0 and 1, sum to 1 (allowing for the providers' rounding), and agree with the
 answer. A malformed response raises `ProviderError` rather than looking like a confident
-answer.
+answer. Questions check themselves too: a `Choice` needs at least two distinct options,
+a `Score` at least two distinct levels, and a bad definition raises `ValueError`.
 
-Retries and timeouts belong to the client you build. The TypeSafe SDK retries by
-default; to have every failure reach you (for example, when something above you does
-its own retrying), turn that off:
+Retries belong to the client you build. The TypeSafe SDK retries by default; to have
+every failure reach you (for example, when something above you does its own retrying),
+turn that off (`timeout` here is the SDK's total budget across retries):
 
 ```python
 TypeSafeClient(retry=RetryPolicy(max_retries=0, timeout=10.0))
-``` Questions check themselves too: a `Choice` needs at least two distinct options,
-a `Score` at least two distinct levels, and a bad definition raises `ValueError`.
+```
+
+## Timeouts
+
+Give any async provider a time limit per call:
+
+```python
+from semantic_operators import ProviderTimeout, with_timeout
+
+provider = with_timeout(AsyncTypeSafe(client), 2.0)   # still a provider
+try:
+    answers = await provider.ask(state, questions)
+except ProviderTimeout:        # also a ProviderError and a TimeoutError
+    ...
+```
+
+Because it's just a provider, the limit carries through to operators, `apply_async`,
+and `rerank_async` (a candidate that runs out of time is simply unscored). For a limit
+on a whole batch of work, wrap it in `asyncio.timeout(...)`.
+
+Stopping to wait isn't always stopping the work: a hosted call may still finish (and
+be billed) on the server, and a local model finishes its current prediction in the
+background while later calls wait their turn. Sync code has no neutral timeout: set it
+on the client you build (`TypeSafeClient(timeout=5)`, which also comes back as
+`ProviderTimeout`). A local model can't be interrupted mid-prediction.
 
 ## Benchmark
 
@@ -317,8 +341,7 @@ own package without changing how it's used.
 
 Operators are just named questions for now. **Combining** them is where this is
 headed: conditions ("ask B only when A says yes"), chains, and small decision flows
-built from operators. Also planned: a provider-neutral call timeout, and suites as data
-files. See [ROADMAP.md](ROADMAP.md).
+built from operators. Also planned: suites as data files. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

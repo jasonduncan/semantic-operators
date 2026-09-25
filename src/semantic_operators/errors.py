@@ -4,6 +4,9 @@ Whatever went wrong underneath (network, bad API key, rate limit, a model that
 failed or returned something unexpected), you catch ``ProviderError``. The
 original exception is kept as ``__cause__`` (shown in tracebacks) when you need
 the details.
+
+A call that runs out of time raises ``ProviderTimeout``, which is both a
+``ProviderError`` and a ``TimeoutError``: catch whichever fits your code.
 """
 
 
@@ -11,3 +14,7 @@ class ProviderError(Exception):
     def __init__(self, provider: str, message: str) -> None:
         super().__init__(f"{provider}: {message}")
         self.provider = provider
+
+
+class ProviderTimeout(ProviderError, TimeoutError):
+    pass

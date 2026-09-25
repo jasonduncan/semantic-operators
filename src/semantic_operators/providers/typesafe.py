@@ -6,7 +6,8 @@ SDK answers -> our ``Answer``. You create and own the SDK client:
 The model is a setting: ``jev-latest`` by default, or pin one such as ``jev-1.13.0``.
 
 Any SDK failure (network, auth, rate limit, server error) or an unexpected
-response is raised as ``ProviderError``. Retries and timeouts are the client's: the
+response is raised as ``ProviderError`` (``ProviderTimeout`` when the SDK times
+out). Retries and timeouts are the client's: the
 SDK retries by default, so pass ``retry=ts.RetryPolicy(max_retries=0, timeout=...)``
 when you want every failure to reach you. Each answer's ``call`` records the model
 TypeSafe reports and the tokens it used.
@@ -16,7 +17,7 @@ from collections.abc import Mapping
 
 import typesafe_sdk as ts
 
-from ..errors import ProviderError
+from ..errors import ProviderError, ProviderTimeout
 from ..types import Answer, Boolean, Call, Choice, Question, Score, State, make_answer, token_count
 
 
@@ -33,7 +34,7 @@ class TypeSafe:
                 model=self.model,
             )
         except ts.TypeSafeError as error:
-            raise ProviderError("TypeSafe", str(error) or type(error).__name__) from error
+            raise _error(error) from error
         return _decode(questions, response)
 
 
@@ -50,8 +51,13 @@ class AsyncTypeSafe:
                 model=self.model,
             )
         except ts.TypeSafeError as error:
-            raise ProviderError("TypeSafe", str(error) or type(error).__name__) from error
+            raise _error(error) from error
         return _decode(questions, response)
+
+
+def _error(error: ts.TypeSafeError) -> ProviderError:
+    kind = ProviderTimeout if isinstance(error, TimeoutError) else ProviderError
+    return kind("TypeSafe", str(error) or type(error).__name__)
 
 
 def _decode(questions: Mapping[str, Question], response: ts.SystemOneResponse) -> dict[str, Answer]:

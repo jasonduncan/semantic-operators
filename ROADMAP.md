@@ -6,10 +6,13 @@ Nothing here is a promise of dates.
 
 ## Next
 
-- **Call timeouts.** A provider-neutral `timeout=` on `ask`, operators, and `apply`.
-  Today the TypeSafe client's own timeout covers the hosted case; a local model can't be
-  interrupted mid-prediction, so the neutral version needs care.
 - **Request IDs** in `Call`, once a provider reports them.
+- **Conditions**, the first step of combining operators (below).
+
+Done in 0.7.0: timeouts. `with_timeout(provider, seconds)` limits each call of any
+async provider and raises `ProviderTimeout` (a `ProviderError` and a `TimeoutError`);
+TypeSafe's own SDK timeouts come back the same way. Sync code sets its timeout on the
+client, and a local model can't be interrupted mid-prediction.
 
 Done in 0.6.0: reranking (`rerank.py`), scoring each candidate on its own and sorting,
 with `bench.ndcg` to compare against retrieval order.

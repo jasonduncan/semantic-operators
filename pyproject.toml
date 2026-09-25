@@ -1,6 +1,6 @@
 [project]
 name = "semantic-operators"
-version = "0.6.0"
+version = "0.7.0"
 description = "One small, provider-neutral interface for System One models (TypeSafe's Jev, Laya, and compatibles)."
 readme = "README.md"
 license = "MIT"
