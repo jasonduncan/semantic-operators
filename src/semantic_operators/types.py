@@ -4,6 +4,7 @@ These are our words, not any provider's. A provider translates them into
 its own API and translates its answers back with ``make_answer``.
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,6 +15,24 @@ State = str | dict[str, Any] | list[Any]
 # Every question takes an optional keyword ``min_confidence`` (0 to 1). When the
 # model's confidence in its answer is below it, the answer comes back undecided
 # (``value is None``) instead of as a guess. The default, 0, never withholds an answer.
+#
+# Questions check themselves when created and raise ValueError if they're malformed.
+
+
+def _check_question(instructions: Any, min_confidence: Any) -> None:
+    if not isinstance(instructions, str) or not instructions.strip():
+        raise ValueError("instructions must be a non-empty string")
+    if not _is_number(min_confidence) or not 0 <= min_confidence <= 1:
+        raise ValueError(f"min_confidence must be a number from 0 to 1, got {min_confidence!r}")
+
+
+def _check_labels(labels: Any, what: str) -> None:
+    if len(labels) < 2:
+        raise ValueError(f"need at least 2 {what}, got {len(labels)}")
+    if not all(isinstance(label, str) and label for label in labels):
+        raise ValueError(f"{what} must be non-empty strings")
+    if len(set(labels)) != len(labels):
+        raise ValueError(f"{what} must be unique")
 
 
 @dataclass(frozen=True)
@@ -25,6 +44,9 @@ class Boolean:
     false: str | None = None
     min_confidence: float = field(default=0.0, kw_only=True)
 
+    def __post_init__(self) -> None:
+        _check_question(self.instructions, self.min_confidence)
+
 
 @dataclass(frozen=True)
 class Choice:
@@ -34,6 +56,10 @@ class Choice:
     options: dict[str, str | None]
     min_confidence: float = field(default=0.0, kw_only=True)
 
+    def __post_init__(self) -> None:
+        _check_question(self.instructions, self.min_confidence)
+        _check_labels(list(self.options), "options")
+
 
 @dataclass(frozen=True)
 class Score:
@@ -42,6 +68,10 @@ class Score:
     instructions: str
     levels: list[str]
     min_confidence: float = field(default=0.0, kw_only=True)
+
+    def __post_init__(self) -> None:
+        _check_question(self.instructions, self.min_confidence)
+        _check_labels(self.levels, "levels")  # levels become probability keys
 
 
 Question = Boolean | Choice | Score
@@ -61,8 +91,9 @@ class Answer:
     between answers, or its ``confidence`` was below the question's ``min_confidence``.
     ``probabilities`` are always kept, so you can still see what it was leaning toward.
 
-    ``confidence`` is the probability of the model's own answer (for Score, of the
-    nearest level). It's the model's view, not a guarantee: check it with a benchmark.
+    ``confidence`` is the probability of the model's own answer: the chosen option for
+    Choice, the chosen side for Boolean, the nearest level for Score. It's the model's
+    view, not a guarantee: check it with a benchmark.
 
     ``raw`` is the provider's own answer object, for when you need more.
     """
@@ -77,23 +108,63 @@ class Answer:
         return self.value is not None
 
 
+# Providers round what they return (TypeSafe to 2 decimals, Laya to 4), so each
+# probability or score may be off by up to half a hundredth. Totals and expected
+# scores are checked with margins that allow exactly that much rounding and no more.
+ROUNDING = 0.005
+
+
 def make_answer(question: Question, value: bool | str | float, probabilities: dict[str, float],
                 raw: Any = None) -> Answer:
     """Build an ``Answer`` from a provider's value and probabilities.
 
     Providers call this so every provider handles ties and ``min_confidence`` the same way.
+    It also checks the provider's output: the probabilities must cover exactly the
+    question's outcomes, be finite, lie in [0, 1] and sum to 1, and the value must agree
+    with them. Malformed output raises ValueError, which providers turn into ProviderError,
+    so a broken response never looks like a confident answer.
     """
     match question:
         case Boolean():
-            confidence = max(probabilities["true"], probabilities["false"])
-            tied = probabilities["true"] == probabilities["false"]
+            _check_distribution(probabilities, ["true", "false"])
+            p_true, p_false = probabilities["true"], probabilities["false"]
+            tied = p_true == p_false
+            if not isinstance(value, bool) or (not tied and value != (p_true > p_false)):
+                raise ValueError(f"Boolean value {value!r} disagrees with its probabilities")
+            confidence = max(p_true, p_false)
         case Choice():
-            confidence = max(probabilities.values())
-            tied = list(probabilities.values()).count(confidence) > 1
+            _check_distribution(probabilities, list(question.options))
+            if value not in question.options:
+                raise ValueError(f"Choice value {value!r} is not one of the options")
+            top = max(probabilities.values())
+            tied = list(probabilities.values()).count(top) > 1
+            if probabilities[value] != top:
+                raise ValueError(f"Choice value {value!r} is not the most likely option")
+            confidence = probabilities[value]
         case Score():
-            nearest = min(int(float(value) + 0.5), len(question.levels) - 1)
-            confidence = probabilities[question.levels[nearest]]
+            _check_distribution(probabilities, question.levels)
+            highest = len(question.levels) - 1
+            if not _is_number(value) or not 0 <= value <= highest:
+                raise ValueError(f"Score value {value!r} is outside 0..{highest}")
+            expected = sum(i * probabilities[level] for i, level in enumerate(question.levels))
+            margin = ROUNDING * (1 + sum(range(len(question.levels))))  # score + each level
+            if abs(value - expected) > margin:
+                raise ValueError(f"Score value {value!r} disagrees with its probabilities")
+            confidence = probabilities[question.levels[min(int(value + 0.5), highest)]]
             tied = False  # an expected score is always a single number
     if tied or confidence < question.min_confidence:
         return Answer(None, probabilities, confidence, raw)
     return Answer(value, probabilities, confidence, raw)
+
+
+def _is_number(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def _check_distribution(probabilities: Any, outcomes: list[str]) -> None:
+    if not isinstance(probabilities, dict) or set(probabilities) != set(outcomes):
+        raise ValueError(f"probabilities must cover exactly {outcomes}")
+    if not all(_is_number(p) and 0 <= p <= 1 for p in probabilities.values()):
+        raise ValueError("probabilities must be finite numbers from 0 to 1")
+    if abs(math.fsum(probabilities.values()) - 1) > ROUNDING * len(outcomes) + 1e-9:
+        raise ValueError("probabilities must sum to 1")

@@ -1,0 +1,21 @@
+# Offline tests (no API keys, no model downloads) on every push and pull request.
+# The publish workflow also runs these before anything is released.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # [typesafe] only: the tests use the real TypeSafe SDK with a fake HTTP layer.
+      # They don't need the laya package (and its torch download).
+      - run: uv run --python ${{ matrix.python }} --extra typesafe pytest -q

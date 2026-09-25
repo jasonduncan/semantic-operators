@@ -1,10 +1,17 @@
 # Semantic Operators
 
-One small interface for **System One models**: fast models that answer structured
-questions about text or data with probabilities, not prose. [Jev](https://typesafe.ai)
-was the first; [Laya](https://huggingface.co/convaiinnovations/laya) is an open-weight,
-Jev-compatible alternative you can run locally. More are coming. This library lets you
-write your code once and swap the model underneath.
+```sh
+pip install "semantic-operators[typesafe]"
+```
+
+**Write a semantic judgment once, run it on any System One model, and get a "don't
+know" instead of a guess when the model isn't sure.**
+
+System One models are small, fast models that classify instead of generating text,
+as opposed to a chat LLM. You ask them typed questions (yes/no, pick one, rate on a
+scale) about text or data, and they return answers with probabilities.
+[Jev](https://typesafe.ai) was the first; [Laya](https://huggingface.co/convaiinnovations/laya)
+is an open-weight, Jev-compatible alternative you can run locally. More are coming.
 
 | Provider | Models | Where it runs | Install |
 |----------|--------|---------------|---------|
@@ -16,8 +23,8 @@ A provider is the service or runtime you talk to; the model is a setting.
 ## Install
 
 ```sh
-pip install "semantic-operators[typesafe]"   # TypeSafe (hosted Jev)
-pip install "semantic-operators[laya]"       # Laya (local; pulls in torch)
+pip install "semantic-operators[typesafe]"        # TypeSafe (hosted Jev)
+pip install "semantic-operators[laya]"            # Laya (local; pulls in torch)
 pip install "semantic-operators[typesafe,laya]"   # both
 ```
 
@@ -157,6 +164,12 @@ except ProviderError as error:
     error.__cause__    # the original exception, for details
 ```
 
+Provider output is checked before it becomes an `Answer`: probabilities must be finite,
+between 0 and 1, sum to 1 (allowing for the providers' rounding), and agree with the
+answer. A malformed response raises `ProviderError` rather than looking like a confident
+answer. Questions check themselves too: a `Choice` needs at least two distinct options,
+a `Score` at least two distinct levels, and a bad definition raises `ValueError`.
+
 ## Benchmark
 
 `bench.run(provider, questions, cases)` asks each labeled case all questions in one call
@@ -216,7 +229,8 @@ benchmarks/
   run.py              runs the suite through TypeSafe and Laya
   run_async.py        concurrency, and both providers at once
   run_confidence.py   the "don't know" trade-off at several min_confidence levels
-tests/                offline tests (uv run --extra typesafe --extra laya pytest)
+tests/                offline tests (uv run --extra typesafe pytest); CI runs them
+ROADMAP.md            where this is headed
 ```
 
 ## Layers
@@ -239,8 +253,10 @@ own package without changing how it's used.
 
 ## Not here yet (on purpose)
 
-Batching many inputs into one call (Laya's `predict_batch`). It will be added as its
-own small step.
+Operators are just named questions for now. **Combining** them is where this is
+headed: conditions ("ask B only when A says yes"), chains, and small decision flows
+built from operators. Also planned: call timeouts, recording which model version
+answered, and suites as data files. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

@@ -4,9 +4,11 @@ Runs locally. You load the model with the ``laya`` package and pass it in:
 ``laya.load("convaiinnovations/laya")`` for one checkpoint, or ``laya.Router()`` to
 pick a checkpoint by language. Both have the ``predict`` method used here.
 
-``AsyncLaya`` runs predictions in a worker thread so they don't block the event
-loop, one at a time (the model is a single local compute resource; Laya's own
-HTTP server serializes calls the same way).
+Predictions run one at a time (the model is a single local compute resource;
+Laya's own HTTP server serializes calls the same way). The lock is taken around
+``predict`` itself, so this holds across threads, and for ``AsyncLaya`` even when
+an awaiting task is cancelled while its prediction is still running in the worker.
+``AsyncLaya`` runs predictions in a worker thread so they don't block the event loop.
 
 Any failure inside the model (for example, options too long to fit, out of memory)
 or an unexpected result is raised as ``ProviderError``. The ``laya`` package has
@@ -14,6 +16,7 @@ no error base class of its own, so every exception from ``predict`` is wrapped.
 """
 
 import asyncio
+import threading
 from collections.abc import Mapping
 from typing import Any
 
@@ -24,10 +27,13 @@ from ..types import Answer, Boolean, Choice, Question, Score, State, make_answer
 class Laya:
     def __init__(self, model: Any) -> None:
         self.model = model
+        self._lock = threading.Lock()
 
     def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
+        request = {name: _to_laya(q) for name, q in questions.items()}
         try:
-            result = self.model.predict(state, {name: _to_laya(q) for name, q in questions.items()})
+            with self._lock:
+                result = self.model.predict(state, request)
         except Exception as error:
             raise ProviderError("Laya", str(error) or type(error).__name__) from error
         try:
@@ -40,11 +46,11 @@ class Laya:
 class AsyncLaya:
     def __init__(self, model: Any) -> None:
         self._laya = Laya(model)
-        self._lock = asyncio.Lock()
 
     async def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
-        async with self._lock:
-            return await asyncio.to_thread(self._laya.ask, state, questions)
+        # Laya.ask holds the lock inside the worker thread. Cancelling this await stops
+        # waiting, not the prediction, and the next call waits until it has finished.
+        return await asyncio.to_thread(self._laya.ask, state, questions)
 
 
 # Laya takes and returns plain dicts in Jev's request/response shape.

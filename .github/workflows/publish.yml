@@ -1,4 +1,5 @@
-# Publishes to PyPI when a GitHub Release is published.
+# Publishes to PyPI when a GitHub Release is published, but only after the tests
+# pass and the built package installs and imports cleanly.
 # Uses PyPI Trusted Publishing: no API token is stored anywhere.
 # One-time setup on pypi.org: add a (pending) publisher for this repo,
 # workflow "publish.yml", environment "pypi".
@@ -9,7 +10,11 @@ on:
     types: [published]
 
 jobs:
+  test:
+    uses: ./.github/workflows/tests.yml
+
   publish:
+    needs: test
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -18,4 +23,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv build
+      - name: Install the built wheel in a clean environment and import everything
+        run: |
+          uv run --isolated --no-project --with dist/*.whl --with typesafe-sdk python -c "
+          import semantic_operators, semantic_operators.operators, semantic_operators.bench
+          import semantic_operators.providers.typesafe, semantic_operators.providers.laya
+          print('ok', semantic_operators.__all__)"
       - run: uv publish
