@@ -42,8 +42,8 @@ answer with probabilities for each. There are three kinds of question:
 | `Score`   | instructions + ordered rubric levels          | expected level as a float, e.g. `1.7` |
 
 Every `Answer` also carries `probabilities` (a dict, in the question's option/level
-order), `confidence` (the probability of its own answer), and `raw` (the provider's
-own answer object).
+order), `confidence` (the probability of its own answer), `raw` (the provider's
+own answer object), and `call` (which model answered, below).
 
 A **provider** is anything with one method:
 
@@ -149,6 +149,20 @@ checks whether it means anything: on the support suite, TypeSafe's urgency answe
 `min_confidence=0.8` were right 10 of 10 times (answering half the cases), while
 Laya's were right 4 of 7.
 
+## Which model answered
+
+`jev-latest` moves over time, so every answer records what its provider call reported:
+
+```python
+answers["department"].call
+# Call(provider='TypeSafe', model='jev-1.13.0', input_tokens=291, output_tokens=20)
+```
+
+All answers from one call share one `Call`. `model` is exactly what the provider
+reported, which can differ from what you asked for (above, `jev-latest`). Laya reports a
+fixed agent name (`laya-rl-agent`), not which checkpoint answered. Anything a provider
+doesn't report is `None`.
+
 ## Errors
 
 Every provider raises one error type, whatever went wrong underneath (network, bad
@@ -167,7 +181,15 @@ except ProviderError as error:
 Provider output is checked before it becomes an `Answer`: probabilities must be finite,
 between 0 and 1, sum to 1 (allowing for the providers' rounding), and agree with the
 answer. A malformed response raises `ProviderError` rather than looking like a confident
-answer. Questions check themselves too: a `Choice` needs at least two distinct options,
+answer.
+
+Retries and timeouts belong to the client you build. The TypeSafe SDK retries by
+default; to have every failure reach you (for example, when something above you does
+its own retrying), turn that off:
+
+```python
+TypeSafeClient(retry=RetryPolicy(max_retries=0, timeout=10.0))
+``` Questions check themselves too: a `Choice` needs at least two distinct options,
 a `Score` at least two distinct levels, and a bad definition raises `ValueError`.
 
 ## Benchmark
@@ -213,7 +235,7 @@ uv run --env-file .env --extra typesafe --extra laya python benchmarks/run_async
 
 ```
 src/semantic_operators/
-  types.py          Boolean, Choice, Score, Answer, make_answer: our vocabulary
+  types.py          Boolean, Choice, Score, Answer, Call, make_answer: our vocabulary
   provider.py       Provider and AsyncProvider (one method each)
   errors.py         ProviderError, the one error every provider raises
   providers/typesafe.py  translates to/from the TypeSafe SDK
@@ -255,8 +277,8 @@ own package without changing how it's used.
 
 Operators are just named questions for now. **Combining** them is where this is
 headed: conditions ("ask B only when A says yes"), chains, and small decision flows
-built from operators. Also planned: call timeouts, recording which model version
-answered, and suites as data files. See [ROADMAP.md](ROADMAP.md).
+built from operators. Also planned: a provider-neutral call timeout, and suites as data
+files. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

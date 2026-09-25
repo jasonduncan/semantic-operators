@@ -6,12 +6,14 @@ Nothing here is a promise of dates.
 
 ## Next
 
-- **Which model answered, and what it cost.** `jev-latest` moves over time, so every
-  call should record the model version the provider actually used, plus token usage and
-  request ID where the provider reports them. Needed to trust benchmark results later.
-- **Call timeouts.** A `timeout=` on `ask`, operators, and `apply`.
-- **A decision on retries.** The TypeSafe provider currently inherits the SDK's default
-  retries: convenient in apps, but they hide failures in benchmarks. Make it explicit.
+- **Call timeouts.** A provider-neutral `timeout=` on `ask`, operators, and `apply`.
+  Today the TypeSafe client's own timeout covers the hosted case; a local model can't be
+  interrupted mid-prediction, so the neutral version needs care.
+- **Request IDs** in `Call`, once a provider reports them.
+
+Done in 0.5.0: every answer's `call` records the model the provider reported and the
+tokens used. Retries are decided: they belong to the client you build (the TypeSafe
+SDK retries by default; `RetryPolicy(max_retries=0)` turns that off).
 
 ## Then: combining operators
 

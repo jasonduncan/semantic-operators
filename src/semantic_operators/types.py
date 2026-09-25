@@ -78,6 +78,21 @@ Question = Boolean | Choice | Score
 
 
 @dataclass(frozen=True)
+class Call:
+    """What one provider call reported about itself. Every answer from that call shares it.
+
+    ``model`` is the model the provider says answered, exactly as reported. It can differ
+    from the name you asked for (an alias such as ``jev-latest``), and it's only as
+    specific as the provider makes it. Token counts are ``None`` when not reported.
+    """
+
+    provider: str
+    model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+@dataclass(frozen=True)
 class Answer:
     """The answer to one question.
 
@@ -96,12 +111,15 @@ class Answer:
     view, not a guarantee: check it with a benchmark.
 
     ``raw`` is the provider's own answer object, for when you need more.
+
+    ``call`` records which model answered and what the call used (see ``Call``).
     """
 
     value: bool | str | float | None
     probabilities: dict[str, float]
     confidence: float
     raw: Any = field(default=None, repr=False)
+    call: Call | None = field(default=None, repr=False, kw_only=True)
 
     @property
     def decided(self) -> bool:
@@ -115,7 +133,7 @@ ROUNDING = 0.005
 
 
 def make_answer(question: Question, value: bool | str | float, probabilities: dict[str, float],
-                raw: Any = None) -> Answer:
+                raw: Any = None, *, call: Call | None = None) -> Answer:
     """Build an ``Answer`` from a provider's value and probabilities.
 
     Providers call this so every provider handles ties and ``min_confidence`` the same way.
@@ -153,8 +171,13 @@ def make_answer(question: Question, value: bool | str | float, probabilities: di
             confidence = probabilities[question.levels[min(int(value + 0.5), highest)]]
             tied = False  # an expected score is always a single number
     if tied or confidence < question.min_confidence:
-        return Answer(None, probabilities, confidence, raw)
-    return Answer(value, probabilities, confidence, raw)
+        return Answer(None, probabilities, confidence, raw, call=call)
+    return Answer(value, probabilities, confidence, raw, call=call)
+
+
+def token_count(x: Any) -> int | None:
+    """A reported token count, or ``None`` if what was reported isn't a count."""
+    return x if isinstance(x, int) and not isinstance(x, bool) and x >= 0 else None
 
 
 def _is_number(x: Any) -> bool:

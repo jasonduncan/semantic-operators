@@ -6,7 +6,10 @@ SDK answers -> our ``Answer``. You create and own the SDK client:
 The model is a setting: ``jev-latest`` by default, or pin one such as ``jev-1.13.0``.
 
 Any SDK failure (network, auth, rate limit, server error) or an unexpected
-response is raised as ``ProviderError``. The SDK's own retry policy still applies.
+response is raised as ``ProviderError``. Retries and timeouts are the client's: the
+SDK retries by default, so pass ``retry=ts.RetryPolicy(max_retries=0, timeout=...)``
+when you want every failure to reach you. Each answer's ``call`` records the model
+TypeSafe reports and the tokens it used.
 """
 
 from collections.abc import Mapping
@@ -14,7 +17,7 @@ from collections.abc import Mapping
 import typesafe_sdk as ts
 
 from ..errors import ProviderError
-from ..types import Answer, Boolean, Choice, Question, Score, State, make_answer
+from ..types import Answer, Boolean, Call, Choice, Question, Score, State, make_answer, token_count
 
 
 class TypeSafe:
@@ -53,7 +56,11 @@ class AsyncTypeSafe:
 
 def _decode(questions: Mapping[str, Question], response: ts.SystemOneResponse) -> dict[str, Answer]:
     try:
-        return {name: _from_typesafe(q, response.answers[name]) for name, q in questions.items()}
+        usage = response.usage
+        call = Call("TypeSafe", response.model if isinstance(response.model, str) else None,
+                    token_count(usage.input_tokens), token_count(usage.output_tokens))
+        return {name: _from_typesafe(q, response.answers[name], call)
+                for name, q in questions.items()}
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         raise ProviderError("TypeSafe", f"unexpected response: {error!r}") from error
 
@@ -70,16 +77,16 @@ def _to_typesafe(question: Question) -> ts.Noul | ts.Choice | ts.Score:
             return ts.Score(instructions=question.instructions, criteria=list(question.levels))
 
 
-def _from_typesafe(question: Question, answer: ts.Answer) -> Answer:
+def _from_typesafe(question: Question, answer: ts.Answer, call: Call) -> Answer:
     match question:
         case Boolean():
             # TypeSafe returns one number: the probability the answer is "true".
             p = answer.noul
-            return make_answer(question, p > 0.5, {"true": p, "false": 1 - p}, answer)
+            return make_answer(question, p > 0.5, {"true": p, "false": 1 - p}, answer, call=call)
         case Choice():
             probabilities = {option: answer.probabilities[option] for option in question.options}
-            return make_answer(question, answer.choice, probabilities, answer)
+            return make_answer(question, answer.choice, probabilities, answer, call=call)
         case Score():
             # TypeSafe keys probabilities by level index (0, 1, 2...); we key them by level text.
             probabilities = {level: answer.probabilities[i] for i, level in enumerate(question.levels)}
-            return make_answer(question, answer.score, probabilities, answer)
+            return make_answer(question, answer.score, probabilities, answer, call=call)

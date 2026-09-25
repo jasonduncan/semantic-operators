@@ -13,6 +13,9 @@ an awaiting task is cancelled while its prediction is still running in the worke
 Any failure inside the model (for example, options too long to fit, out of memory)
 or an unexpected result is raised as ``ProviderError``. The ``laya`` package has
 no error base class of its own, so every exception from ``predict`` is wrapped.
+
+Each answer's ``call`` records the ``model`` and token ``usage`` Laya reports. Laya
+reports a fixed agent name (``laya-rl-agent``), not which checkpoint answered.
 """
 
 import asyncio
@@ -21,7 +24,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..errors import ProviderError
-from ..types import Answer, Boolean, Choice, Question, Score, State, make_answer
+from ..types import Answer, Boolean, Call, Choice, Question, Score, State, make_answer, token_count
 
 
 class Laya:
@@ -38,7 +41,8 @@ class Laya:
             raise ProviderError("Laya", str(error) or type(error).__name__) from error
         try:
             answers = result["answers"]
-            return {name: _from_laya(q, answers[name]) for name, q in questions.items()}
+            call = _call(result)
+            return {name: _from_laya(q, answers[name], call) for name, q in questions.items()}
         except (KeyError, TypeError, ValueError) as error:
             raise ProviderError("Laya", f"unexpected result: {error!r}") from error
 
@@ -71,16 +75,23 @@ def _to_laya(question: Question) -> dict[str, Any]:
                     "criteria": list(question.levels)}
 
 
-def _from_laya(question: Question, answer: dict[str, Any]) -> Answer:
+def _call(result: dict[str, Any]) -> Call:
+    model, usage = result.get("model"), result.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    return Call("Laya", model if isinstance(model, str) else None,
+                token_count(usage.get("input_tokens")), token_count(usage.get("output_tokens")))
+
+
+def _from_laya(question: Question, answer: dict[str, Any], call: Call) -> Answer:
     match question:
         case Boolean():
             p = answer["noul"]
-            return make_answer(question, p > 0.5, {"true": p, "false": 1 - p}, answer)
+            return make_answer(question, p > 0.5, {"true": p, "false": 1 - p}, answer, call=call)
         case Choice():
             probabilities = {option: answer["probabilities"][option] for option in question.options}
-            return make_answer(question, answer["choice"], probabilities, answer)
+            return make_answer(question, answer["choice"], probabilities, answer, call=call)
         case Score():
             # Laya keys probabilities by level index as a string ("0", "1", ...).
             probabilities = {level: answer["probabilities"][str(i)]
                              for i, level in enumerate(question.levels)}
-            return make_answer(question, answer["score"], probabilities, answer)
+            return make_answer(question, answer["score"], probabilities, answer, call=call)
