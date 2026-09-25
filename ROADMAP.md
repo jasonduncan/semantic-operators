@@ -6,8 +6,13 @@ Nothing here is a promise of dates.
 
 ## Next
 
+- **Flows**, the next step of combining operators (below).
 - **Request IDs** in `Call`, once a provider reports them.
-- **Conditions**, the first step of combining operators (below).
+
+Done in 0.8.0: escalation. `cascade(fast, strong, escalate_below=...)` re-asks only
+unsure answers of the next provider, in one call. On the support suite, Laya first came
+within one answer of TypeSafe alone but still called TypeSafe for nearly every message,
+so whether a pairing saves anything is measured, not assumed (`benchmarks/run_cascade.py`).
 
 Done in 0.7.0: timeouts. `with_timeout(provider, seconds)` limits each call of any
 async provider and raises `ProviderTimeout` (a `ProviderError` and a `TimeoutError`);
@@ -23,20 +28,37 @@ SDK retries by default; `RetryPolicy(max_retries=0)` turns that off).
 
 ## Then: combining operators
 
-The name promises operators you can combine, and this is where it's headed:
+The name promises operators you can combine. One fact shapes how: a System One model
+answers several questions in one pass for about the cost of one, so asking B only
+when A says yes rarely saves time or money. Asking everything in one call and deciding
+in plain Python is usually cheaper and faster. Combining earns its keep only when the
+next step truly depends on the first answer: a different model, different input, or a
+question that depends on A's answer. So, in order:
 
-- **Conditions:** ask B only when A says yes (or is confident enough).
-- **Chains and small decision flows** built from operators, still one provider call
-  per step, and "don't know" carried through rather than guessed past.
-- **Choices supplied at call time:** options that only exist per call ("which of these
-  five documents answers the question?").
+1. **Escalation (done in 0.8.0).** `cascade(fast, strong)` asks the first provider everything
+   and re-asks only its undecided answers of the next, in one call. It's a provider
+   wrapper like `with_timeout`, so operators, reranking, and benchmarks work unchanged,
+   and `answer.call` shows who answered. It escalates when the model is *unsure*, never
+   when it *fails* (that would hide an outage). It's only as good as the first model's
+   confidence, which the benchmark measures per question.
+2. **Flows (0.9.0).** A flow is a plain Python function that asks operators through
+   an `ask` handle. The library records a trace (what was asked, which provider
+   answered, what came back), benchmarks a whole flow against labeled outcomes, and
+   "don't know" stops the flow rather than being guessed past.
+3. **Choices supplied at call time:** options that only exist per call ("which of these
+   five documents answers the question?").
+
+Not planned for combining: a graph or chain language, `.then()`/`.when()` builders,
+automatic splitting of work into minimal calls, or retries inside `cascade`. Python's
+`if` is the flow language.
 
 ## Later
 
 - **A generic Jev-compatible HTTP provider:** one provider for any endpoint that
   speaks Jev's request format (Laya's own `laya-serve`, OpenRouter, future clones).
-- **An LLM provider as a baseline:** the same questions answered by a chat model,
-  to measure when a System One model is worth it (accuracy, latency, cost).
+- **An LLM provider (Claude)** as the top of a cascade and as a baseline: the same
+  questions answered by a reasoning model, to measure when a System One model is worth
+  it (accuracy, latency, cost). Fast model first, reasoning model only for what's left.
 - **Benchmark suites as data files** (JSONL) with saved reports, so suites can hold
   your own labeled data and runs can be compared over time. Include "must say don't
   know" cases.

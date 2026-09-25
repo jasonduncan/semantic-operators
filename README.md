@@ -163,6 +163,35 @@ for r in ranking.top(10):
 `examples/rerank.py` reranks three hand-graded searches and compares NDCG before and
 after; on those, TypeSafe went from 0.56 (retrieval order) to 1.00 and Laya to 0.84.
 
+## Escalation
+
+Ask a fast or local model first, and a stronger one only about what it wasn't sure of:
+
+```python
+from semantic_operators.cascade import cascade
+
+provider = cascade(Laya(model), TypeSafe(client), escalate_below=0.8)   # still a provider
+answers = provider.ask(message, questions)
+answers["department"].call.provider    # "Laya", or "TypeSafe" if it was escalated
+```
+
+- Every question goes to the first provider. Answers with confidence under
+  `escalate_below` (or undecided) are re-asked of the next provider, **all in one call**,
+  and so on down the list. The last provider's answer stands.
+- **Two thresholds, two decisions:** `escalate_below` decides when to ask a stronger
+  model; a question's `min_confidence` decides when the final answer is a "don't know".
+- It escalates when a model is **unsure**, never when it **fails**: a `ProviderError`
+  propagates, because quietly routing around an outage would hide it.
+- It's a provider, so operators, `rerank`, and benchmarks work unchanged.
+  `cascade_async` does the same for async providers.
+
+It's only as good as the first model's confidence, and a message costs a call to the
+stronger model if *any* of its questions escalates. `benchmarks/run_cascade.py` measures
+both. On the support suite, Laya first with `escalate_below=0.9` came within one answer
+of TypeSafe alone, but still needed TypeSafe for 20 of 20 messages: Laya was unsure of
+something in almost every one, and confidently wrong on others. The mechanism works;
+whether a pairing pays off is a benchmark question.
+
 ## "Don't know" answers
 
 A model that's split, or not sure enough, should say so rather than guess. Give any
@@ -303,6 +332,7 @@ src/semantic_operators/
   providers/laya.py translates to/from the laya package
   operators.py      (higher layer) named operators: define once, combine in one call
   rerank.py         (higher layer) rerank search results by relevance
+  cascade.py        (higher layer) escalate unsure answers to a stronger provider
   bench.py          (higher layer) run labeled cases through a provider, score them;
                     ndcg for rankings
 examples/
@@ -315,6 +345,7 @@ benchmarks/
   run.py              runs the suite through TypeSafe and Laya
   run_async.py        concurrency, and both providers at once
   run_confidence.py   the "don't know" trade-off at several min_confidence levels
+  run_cascade.py      Laya first, TypeSafe for what Laya wasn't sure of
 tests/                offline tests (uv run --extra typesafe pytest); CI runs them
 ROADMAP.md            where this is headed
 ```
@@ -326,7 +357,7 @@ Semantic Operators is built in layers inside one package:
 1. **Base layer:** a clean, provider-neutral abstraction over System One
    models: `types.py`, `provider.py`, `errors.py`, `providers/`.
 2. **Higher layers:** built only on the base layer: `operators.py` (named operators),
-   `rerank.py` (reranking), and `bench.py` (benchmarking).
+   `rerank.py` (reranking), `cascade.py` (escalation), and `bench.py` (benchmarking).
 
 The base layer never imports from a higher layer, so it could later be split out as its
 own package without changing how it's used.
