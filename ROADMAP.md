@@ -9,6 +9,11 @@ Nothing here is a promise of dates.
 - **Flows**, the next step of combining operators (below).
 - **Request IDs** in `Call`, once a provider reports them.
 
+Done in 0.9.0: the `semop` CLI and an MCP server (`semop mcp`), one `ask` tool with a
+JSON request shape shared by both. The provider is fixed per process; a "don't know" is
+a normal answer. Deliberately left out for now: profile files, closed JSON schemas,
+admission control and rate limits, and a detailed exit-code taxonomy.
+
 Done in 0.8.0: escalation. `cascade(fast, strong, escalate_below=...)` re-asks only
 unsure answers of the next provider, in one call. On the support suite, Laya first came
 within one answer of TypeSafe alone but still called TypeSafe for nearly every message,
@@ -68,6 +73,8 @@ automatic splitting of work into minimal calls, or retries inside `cascade`. Pyt
   every document into one shared state changes what the model sees, so that would be
   an experiment, not an optimization.
 - **Caching** answers for the same input and operator.
+- **More MCP tools:** `rerank`, and your own named operators exposed as tools (fixed,
+  reviewed wording the agent calls by name instead of inventing questions).
 - **Provider limits and a conformance test kit**, once there are enough providers
   with different limits (for example, TypeSafe allows at most 10 score levels).
 

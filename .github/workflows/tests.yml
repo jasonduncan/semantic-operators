@@ -16,6 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      # [typesafe] only: the tests use the real TypeSafe SDK with a fake HTTP layer.
-      # They don't need the laya package (and its torch download).
-      - run: uv run --python ${{ matrix.python }} --extra typesafe pytest -q
+      # [typesafe]: the real TypeSafe SDK with a fake HTTP layer. [mcp]: the MCP server
+      # over an in-process session. Not [laya] (it would download torch).
+      - run: uv run --python ${{ matrix.python }} --extra typesafe --extra mcp pytest -q

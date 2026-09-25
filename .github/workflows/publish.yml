@@ -28,5 +28,7 @@ jobs:
           uv run --isolated --no-project --with dist/*.whl --with typesafe-sdk python -c "
           import semantic_operators, semantic_operators.operators, semantic_operators.bench
           import semantic_operators.providers.typesafe, semantic_operators.providers.laya
+          import semantic_operators.interfaces.cli
           print('ok', semantic_operators.__all__)"
+          uv run --isolated --no-project --with dist/*.whl semop --version
       - run: uv publish

@@ -28,7 +28,9 @@ pip install "semantic-operators[laya]"            # Laya (local; pulls in torch)
 pip install "semantic-operators[typesafe,laya]"   # both
 ```
 
-The core alone (`pip install semantic-operators`) has no dependencies.
+The core alone (`pip install semantic-operators`) has no dependencies. Add `mcp` to the
+extras for the MCP server (`[typesafe,mcp]`), or install the `semop` command on its own
+with `uv tool install "semantic-operators[typesafe,mcp]"`.
 
 ## The whole idea
 
@@ -96,6 +98,45 @@ Compare both side by side:
 ```sh
 uv run --env-file .env --extra typesafe --extra laya python examples/compare.py
 ```
+
+## Command line and MCP
+
+The `semop` command answers one JSON request, from a file or stdin:
+
+```sh
+echo '{
+  "state": "The payment failed and now I cannot sign in.",
+  "questions": [
+    {"name": "is_complaint", "type": "boolean", "instructions": "Is it a complaint?"},
+    {"name": "department", "type": "choice", "instructions": "Which team?",
+     "options": [{"name": "billing", "description": "Charges and refunds"}, "technical"],
+     "min_confidence": 0.8},
+    {"name": "urgency", "type": "score", "instructions": "How urgent?",
+     "levels": ["low", "medium", "high"]}
+  ]
+}' | semop ask --provider typesafe --pretty
+```
+
+It prints each answer's `value` (`null` when undecided), `decided`, `confidence`, and
+`probabilities`, plus the `call` (provider, model, tokens). Exit code 0 means answered,
+including "don't know"; 1, the provider failed or timed out; 2, the request was invalid
+(the error says where, e.g. `questions[1].options`). `--timeout SECONDS` limits each call.
+The TypeSafe provider reads `TYPESAFE_API_KEY` from the environment.
+
+`semop mcp` runs the same thing as an MCP server over stdio, with one tool, `ask`, that
+takes the same request and returns the same response. Register it with Claude Code:
+
+```sh
+claude mcp add semop -e TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- semop mcp --provider typesafe
+claude mcp add semop-local -- semop mcp --provider laya --timeout 120     # local model
+```
+
+- **The provider is fixed when the server starts.** Nothing an agent sends can change
+  it, so a local-only server can't be switched to a paid hosted API from a tool call.
+- **The tool description tells the agent** where answers come from (and whether the
+  data leaves the machine), to treat "don't know" as unresolved rather than as no, and
+  not to reword a question or lower `min_confidence` to get the answer it wants.
+- A local model loads on the first call (a few seconds) and is reused after that.
 
 ## Named operators
 
@@ -335,6 +376,8 @@ src/semantic_operators/
   cascade.py        (higher layer) escalate unsure answers to a stronger provider
   bench.py          (higher layer) run labeled cases through a provider, score them;
                     ndcg for rankings
+  interfaces/       (application) the semop CLI and MCP server: wire.py (the JSON
+                    shape), backends.py (providers from flags), cli.py, mcp_server.py
 examples/
   hello.py          one real call to Jev
   compare.py        the same questions through TypeSafe and Laya
@@ -346,7 +389,7 @@ benchmarks/
   run_async.py        concurrency, and both providers at once
   run_confidence.py   the "don't know" trade-off at several min_confidence levels
   run_cascade.py      Laya first, TypeSafe for what Laya wasn't sure of
-tests/                offline tests (uv run --extra typesafe pytest); CI runs them
+tests/                offline tests (uv run --extra typesafe --extra mcp pytest); CI runs them
 ROADMAP.md            where this is headed
 ```
 
@@ -359,20 +402,25 @@ Semantic Operators is built in layers inside one package:
 2. **Higher layers:** built only on the base layer: `operators.py` (named operators),
    `rerank.py` (reranking), `cascade.py` (escalation), and `bench.py` (benchmarking).
 
-The base layer never imports from a higher layer, so it could later be split out as its
-own package without changing how it's used.
+3. **Application:** `interfaces/`, the `semop` CLI and MCP server. It uses the library
+   the way your own code does, and it's the only part that reads the environment.
+
+The base layer never imports from a higher layer, and nothing in the library imports
+`interfaces/`, so the base could later be split out as its own package without
+changing how it's used.
 
 ## Rules
 
 - The library never reads API keys or environment variables. You build the client.
+  (The `semop` application does, since it builds the client for you.)
 - The core has no dependencies. Each provider's SDK is an optional extra (`[typesafe]`, `[laya]`).
 - Our names, not the provider's: `Boolean`, not `noul`.
 
 ## Not here yet (on purpose)
 
 Operators are just named questions for now. **Combining** them is where this is
-headed: conditions ("ask B only when A says yes"), chains, and small decision flows
-built from operators. Also planned: suites as data files. See [ROADMAP.md](ROADMAP.md).
+headed: flows built from operators, as plain Python functions with a trace. Also
+planned: suites as data files, and more MCP tools (reranking, your named operators). See [ROADMAP.md](ROADMAP.md).
 
 ## License
 
