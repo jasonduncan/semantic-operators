@@ -168,6 +168,45 @@ answers["urgency"].value
 `examples/triage.py` builds ticket triage from three operators, sending anything the
 model isn't sure about to a person. Add `--laya` to run the same code locally.
 
+## Flows
+
+A flow is a decision built from operators, written as a plain Python function. Python's
+`if` is the flow language:
+
+```python
+from semantic_operators.flows import Undecided, flow
+
+@flow
+def triage(ask, message):
+    a = ask(message, department, urgency)          # one call for both operators
+    try:
+        team = a["department"]
+    except Undecided:
+        return "human"                              # not sure which team: a person decides
+    if team == "technical" and ask(message, outage)["outage"]:   # second call, only if needed
+        return "page on-call"
+    return team
+
+result = triage(provider, message)
+result.value, result.decided, result.stopped_at, result.calls, result.trace
+```
+
+- **`ask(state, *operators)`** asks all of them in one provider call and returns their
+  values by name. `answers.full[name]` is the whole `Answer` (probabilities, confidence).
+- **"Don't know" stops the flow when the flow uses it.** Reading an undecided answer
+  raises `Undecided`; unless the flow catches it, the flow ends with `decided=False` and
+  `stopped_at` naming the operator. An undecided answer the flow never reads stops nothing.
+- **`result.trace`** records every call: the state and the full answers, including which
+  model answered.
+- **Each `ask` is a provider call.** Ask everything you might need up front; add a later
+  step only when it depends on an earlier answer.
+- **Async:** write `async def` and `await ask(...)`, then `await triage.call_async(provider, ...)`.
+
+`bench.run_flow(flow, provider, [(input, expected), ...])` scores a whole flow: right,
+wrong, stopped, and calls made. On the support suite, a flow routing to (team,
+priority) that stops below 80% sure of the team went 18/20 right on TypeSafe with one
+stop and one miss; on Laya it stopped on 14 of 20. `examples/flow.py` runs the triage above.
+
 ## Reranking
 
 Your retrieval (search, vector index, database) finds candidates; a System One model
@@ -375,8 +414,9 @@ src/semantic_operators/
   operators.py      (higher layer) named operators: define once, combine in one call
   rerank.py         (higher layer) rerank search results by relevance
   cascade.py        (higher layer) escalate unsure answers to a stronger provider
+  flows.py          (higher layer) decisions built from operators, with a trace
   bench.py          (higher layer) run labeled cases through a provider, score them;
-                    ndcg for rankings
+                    ndcg for rankings; run_flow for whole flows
   interfaces/       (application) the semop CLI and MCP server: wire.py (the JSON
                     shape), backends.py (providers from flags), cli.py, mcp_server.py
 examples/
@@ -384,12 +424,14 @@ examples/
   compare.py        the same questions through TypeSafe and Laya
   triage.py         ticket triage built from named operators
   rerank.py         rerank three searches, NDCG before and after
+  flow.py           ticket triage as a flow, with a second step only when needed
 benchmarks/
   support_tickets.py  20 labeled messages + the questions
   run.py              runs the suite through TypeSafe and Laya
   run_async.py        concurrency, and both providers at once
   run_confidence.py   the "don't know" trade-off at several min_confidence levels
   run_cascade.py      Laya first, TypeSafe for what Laya wasn't sure of
+  run_flow.py         a whole flow against labeled outcomes
 tests/                offline tests (uv run --extra typesafe --extra mcp pytest); CI runs them
 ROADMAP.md            where this is headed
 ```
@@ -401,7 +443,8 @@ Semantic Operators is built in layers inside one package:
 1. **Base layer:** a clean, provider-neutral abstraction over System One
    models: `types.py`, `provider.py`, `errors.py`, `providers/`.
 2. **Higher layers:** built only on the base layer: `operators.py` (named operators),
-   `rerank.py` (reranking), `cascade.py` (escalation), and `bench.py` (benchmarking).
+   `rerank.py` (reranking), `cascade.py` (escalation), `flows.py` (flows), and
+   `bench.py` (benchmarking).
 
 3. **Application:** `interfaces/`, the `semop` CLI and MCP server. It uses the library
    the way your own code does, and it's the only part that reads the environment.
@@ -419,9 +462,9 @@ changing how it's used.
 
 ## Not here yet (on purpose)
 
-Operators are just named questions for now. **Combining** them is where this is
-headed: flows built from operators, as plain Python functions with a trace. Also
-planned: suites as data files, and more MCP tools (reranking, your named operators). See [ROADMAP.md](ROADMAP.md).
+Choices supplied at call time ("which of these five documents answers the question?"),
+suites as data files, more MCP tools (reranking, your named operators), and a Claude
+provider as the top of a cascade. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

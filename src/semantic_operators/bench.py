@@ -22,14 +22,19 @@ questions: how often does the decision stay the same when only the wording chang
 
 ``ndcg`` scores an ordering of documents against graded relevance labels, for
 comparing a reranked order with the original retrieval order.
+
+``run_flow`` benchmarks a whole flow (see flows.py) against labeled outcomes: how often
+it reached the right result, how often it stopped at a "don't know", and how many
+provider calls it made.
 """
 
 import asyncio
 import math
 import statistics
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 from .provider import AsyncProvider, Provider
 from .types import Answer, Boolean, Choice, Question, Score, State
@@ -186,6 +191,52 @@ def at_min_confidence(report: Report, questions: Mapping[str, Question], cases: 
     stricter = [{name: replace(a, value=None) if a.confidence < min_confidence else a
                  for name, a in case_answers.items()} for case_answers in report.answers]
     return score(questions, cases, stricter, report.latencies_ms, report.total_ms)
+
+
+@dataclass
+class FlowReport:
+    results: list[Any]          # the FlowResult for each case
+    expected: list[Any]         # the labeled outcome for each case
+    latencies_ms: list[float]   # per case, all of its calls together
+
+    @property
+    def total(self) -> int:
+        return len(self.results)
+
+    @property
+    def stopped(self) -> int:
+        """Cases where the flow stopped at a "don't know"."""
+        return sum(not r.decided for r in self.results)
+
+    @property
+    def correct(self) -> int:
+        return sum(r.decided and r.value == e for r, e in zip(self.results, self.expected))
+
+    @property
+    def misses(self) -> list[tuple[int, Any, Any]]:
+        """``(case, expected, got)`` for every case the flow finished but got wrong."""
+        return [(i, e, r.value) for i, (r, e) in enumerate(zip(self.results, self.expected))
+                if r.decided and r.value != e]
+
+    @property
+    def accuracy_when_answered(self) -> float:
+        answered = self.total - self.stopped
+        return self.correct / answered if answered else 0.0
+
+    @property
+    def calls(self) -> int:
+        return sum(r.calls for r in self.results)
+
+
+def run_flow(flow: Callable[..., Any], provider: Provider,
+             cases: Sequence[tuple[Any, Any]]) -> FlowReport:
+    """Run ``flow(provider, input)`` for each ``(input, expected)`` case and compare."""
+    results, latencies = [], []
+    for input, _ in cases:
+        start = time.perf_counter()
+        results.append(flow(provider, input))
+        latencies.append((time.perf_counter() - start) * 1000)
+    return FlowReport(results, [expected for _, expected in cases], latencies)
 
 
 def ndcg(order: Sequence[str], grades: Mapping[str, int], k: int = 10) -> float | None:

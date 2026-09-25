@@ -6,8 +6,12 @@ Nothing here is a promise of dates.
 
 ## Next
 
-- **Flows**, the next step of combining operators (below).
+- **Choices supplied at call time**, the last step of combining operators (below).
 - **Request IDs** in `Call`, once a provider reports them.
+
+Done in 0.10.0: flows. A flow is a plain Python function that asks operators through
+an `ask` handle; reading an undecided answer stops it (`Undecided`), a trace records
+every call, and `bench.run_flow` scores a whole flow against labeled outcomes.
 
 Done in 0.9.1: a Boolean's p(false) is `1 - p` without float noise, which had put some
 answers just under their `min_confidence` (`1 - 0.07` is 0.9299999999999999, so a 0.93
@@ -50,7 +54,7 @@ question that depends on A's answer. So, in order:
    and `answer.call` shows who answered. It escalates when the model is *unsure*, never
    when it *fails* (that would hide an outage). It's only as good as the first model's
    confidence, which the benchmark measures per question.
-2. **Flows (0.10.0).** A flow is a plain Python function that asks operators through
+2. **Flows (done in 0.10.0).** A flow is a plain Python function that asks operators through
    an `ask` handle. The library records a trace (what was asked, which provider
    answered, what came back), benchmarks a whole flow against labeled outcomes, and
    "don't know" stops the flow rather than being guessed past.
