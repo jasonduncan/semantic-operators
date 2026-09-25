@@ -175,6 +175,15 @@ def make_answer(question: Question, value: bool | str | float, probabilities: di
     return Answer(value, probabilities, confidence, raw, call=call)
 
 
+def complement(p: float) -> float:
+    """``1 - p`` without float noise, for providers that report only p(true).
+
+    ``1 - 0.07`` is 0.9299999999999999, which would put a 0.93 answer under a
+    ``min_confidence`` of 0.93. Rounding to 10 places removes the noise and nothing else.
+    """
+    return round(1 - p, 10)
+
+
 def token_count(x: Any) -> int | None:
     """A reported token count, or ``None`` if what was reported isn't a count."""
     return x if isinstance(x, int) and not isinstance(x, bool) and x >= 0 else None

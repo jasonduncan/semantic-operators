@@ -59,6 +59,16 @@ def test_rounded_probabilities_are_accepted():
     assert answer.value == 0.58 and answer.confidence == 0.57
 
 
+def test_boolean_complement_has_no_float_noise():
+    # 1 - 0.07 is 0.9299999999999999 in floating point, which would miss a 0.93 threshold.
+    class Model:
+        def predict(self, state, questions):
+            return {"answers": {"q": {"noul": 0.07}}}
+
+    answer = Laya(Model()).ask("hi", {"q": Boolean("Is it?", min_confidence=0.93)})["q"]
+    assert answer.value is False and answer.probabilities == {"true": 0.07, "false": 0.93}
+
+
 def test_provider_turns_malformed_output_into_provider_error():
     class LyingModel:
         def predict(self, state, questions):

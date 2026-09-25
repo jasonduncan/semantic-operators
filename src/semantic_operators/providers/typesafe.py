@@ -18,7 +18,8 @@ from collections.abc import Mapping
 import typesafe_sdk as ts
 
 from ..errors import ProviderError, ProviderTimeout
-from ..types import Answer, Boolean, Call, Choice, Question, Score, State, make_answer, token_count
+from ..types import (Answer, Boolean, Call, Choice, Question, Score, State, complement, make_answer,
+                     token_count)
 
 
 class TypeSafe:
@@ -88,7 +89,8 @@ def _from_typesafe(question: Question, answer: ts.Answer, call: Call) -> Answer:
         case Boolean():
             # TypeSafe returns one number: the probability the answer is "true".
             p = answer.noul
-            return make_answer(question, p > 0.5, {"true": p, "false": 1 - p}, answer, call=call)
+            probabilities = {"true": p, "false": complement(p)}
+            return make_answer(question, p > 0.5, probabilities, answer, call=call)
         case Choice():
             probabilities = {option: answer.probabilities[option] for option in question.options}
             return make_answer(question, answer.choice, probabilities, answer, call=call)

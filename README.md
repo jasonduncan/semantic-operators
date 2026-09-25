@@ -118,9 +118,10 @@ echo '{
 ```
 
 It prints each answer's `value` (`null` when undecided), `decided`, `confidence`, and
-`probabilities`, plus the `call` (provider, model, tokens). Exit code 0 means answered,
-including "don't know"; 1, the provider failed or timed out; 2, the request was invalid
-(the error says where, e.g. `questions[1].options`). `--timeout SECONDS` limits each call.
+`probabilities`, rounded to 4 significant digits, plus the `call` (provider, model,
+tokens). Exit code 0 means answered, including "don't know"; 1, the provider failed or
+timed out; 2, the request was invalid (the error says where, e.g. `questions[1].options`).
+`--timeout SECONDS` limits each call.
 The TypeSafe provider reads `TYPESAFE_API_KEY` from the environment.
 
 `semop mcp` runs the same thing as an MCP server over stdio, with one tool, `ask`, that
