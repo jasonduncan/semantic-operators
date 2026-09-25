@@ -9,6 +9,10 @@ Nothing here is a promise of dates.
 - **Flows**, the next step of combining operators (below).
 - **Request IDs** in `Call`, once a provider reports them.
 
+Done in 0.9.1: a Boolean's p(false) is `1 - p` without float noise, which had put some
+answers just under their `min_confidence` (`1 - 0.07` is 0.9299999999999999, so a 0.93
+answer failed a 0.93 threshold). `semop` output is rounded to 4 significant digits.
+
 Done in 0.9.0: the `semop` CLI and an MCP server (`semop mcp`), one `ask` tool with a
 JSON request shape shared by both. The provider is fixed per process; a "don't know" is
 a normal answer. Deliberately left out for now: profile files, closed JSON schemas,

@@ -26,7 +26,8 @@ fields are rejected, so typos fail loudly instead of being ignored.
 
 A response has ``answers`` keyed by question name, each with ``type``, ``value``
 (``null`` when undecided), ``decided``, ``confidence``, and ``probabilities`` (in the
-question's option/level order), plus one ``call`` for the provider call. A failure is
+question's option/level order), plus one ``call`` for the provider call. Numbers are
+rounded to 4 significant digits (``SIGNIFICANT_DIGITS``). A failure is
 ``{"error": {"code", "message"}}``. ``Answer.raw`` is never included.
 """
 
@@ -89,10 +90,10 @@ def encode(answers: Mapping[str, Answer], questions: Mapping[str, Question],
     response["answers"] = {
         name: {
             "type": _TYPES[type(questions[name])],
-            "value": answer.value,
+            "value": _significant(answer.value),
             "decided": answer.decided,
-            "confidence": answer.confidence,
-            "probabilities": answer.probabilities,
+            "confidence": _significant(answer.confidence),
+            "probabilities": {k: _significant(p) for k, p in answer.probabilities.items()},
         }
         for name, answer in answers.items()
     }
@@ -111,6 +112,15 @@ def error(code: str, message: str, request_id: str | None = None) -> dict[str, A
 
 
 _TYPES = {Boolean: "boolean", Choice: "choice", Score: "score"}
+
+# Providers report 2 (TypeSafe) or 4 (Laya) decimals, so 4 significant digits keeps every
+# probability they report and drops float noise (a Laya score above 1 loses its last decimal).
+SIGNIFICANT_DIGITS = 4
+
+
+def _significant(x: Any) -> Any:
+    """A float rounded to ``SIGNIFICANT_DIGITS``; anything else (bool, str, None) unchanged."""
+    return float(f"{x:.{SIGNIFICANT_DIGITS}g}") if isinstance(x, float) else x
 
 
 def _question(spec: Any, path: str) -> tuple[str, Question]:

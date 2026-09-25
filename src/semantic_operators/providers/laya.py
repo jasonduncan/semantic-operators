@@ -24,7 +24,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..errors import ProviderError
-from ..types import Answer, Boolean, Call, Choice, Question, Score, State, make_answer, token_count
+from ..types import (Answer, Boolean, Call, Choice, Question, Score, State, complement, make_answer,
+                     token_count)
 
 
 class Laya:
@@ -86,7 +87,8 @@ def _from_laya(question: Question, answer: dict[str, Any], call: Call) -> Answer
     match question:
         case Boolean():
             p = answer["noul"]
-            return make_answer(question, p > 0.5, {"true": p, "false": 1 - p}, answer, call=call)
+            probabilities = {"true": p, "false": complement(p)}
+            return make_answer(question, p > 0.5, probabilities, answer, call=call)
         case Choice():
             probabilities = {option: answer["probabilities"][option] for option in question.options}
             return make_answer(question, answer["choice"], probabilities, answer, call=call)

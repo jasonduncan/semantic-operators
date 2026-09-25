@@ -97,6 +97,19 @@ def test_encode_keeps_undecided_as_null_and_never_includes_raw():
     assert "raw" not in json.dumps(response)
 
 
+def test_encode_rounds_numbers_to_significant_digits():
+    questions = {"b": Boolean("Is it?"), "s": Score("How much?", ["low", "medium", "high"])}
+    answers = {
+        "b": make_answer(questions["b"], True, {"true": 0.92, "false": 0.07999999999999996}),
+        "s": make_answer(questions["s"], 1.23456, {"low": 0.1, "medium": 0.56544, "high": 0.33456}),
+    }
+    response = wire.encode(answers, questions)["answers"]
+    assert response["b"]["value"] is True
+    assert response["b"]["probabilities"] == {"true": 0.92, "false": 0.08}
+    assert response["s"]["value"] == 1.235 and response["s"]["confidence"] == 0.5654
+    assert response["s"]["probabilities"] == {"low": 0.1, "medium": 0.5654, "high": 0.3346}
+
+
 # The CLI
 
 def run_cli(monkeypatch, capsys, request, provider=None, args=("--provider", "typesafe")):
