@@ -11,14 +11,22 @@ out). Retries and timeouts are the client's: the
 SDK retries by default, so pass ``retry=ts.RetryPolicy(max_retries=0, timeout=...)``
 when you want every failure to reach you. Each answer's ``call`` records the model
 TypeSafe reports and the tokens it used.
+
+Images (``semantic_operators.Image``) in the state or in any question text are sent as
+``assets`` (multipart file parts), and every request with an image or a Box question
+carries the ``TypeSafe-Danger-Zone-Images: true`` header. An image that breaks the
+limits raises ``ImageError`` (a ``ValueError``) before anything is sent. Box questions
+need ``model="jev-1.14.0"`` (or ``jev-preview``).
 """
 
 from collections.abc import Mapping
+from typing import Any
 
 import typesafe_sdk as ts
 
 from ..errors import ProviderError, ProviderTimeout
-from ..types import (Answer, Boolean, Call, Choice, Question, Score, State, complement, make_answer,
+from ..images import collect, replace_images
+from ..types import (Answer, Boolean, Box, Call, Choice, Question, Region, Score, State, complement, make_answer,
                      token_count)
 
 
@@ -29,11 +37,7 @@ class TypeSafe:
 
     def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
         try:
-            response = self.client.system_one(
-                state=state,
-                questions={name: _to_typesafe(q) for name, q in questions.items()},
-                model=self.model,
-            )
+            response = self.client.system_one(**_request(state, questions, self.model))
         except ts.TypeSafeError as error:
             raise _error(error) from error
         return _decode(questions, response)
@@ -46,14 +50,28 @@ class AsyncTypeSafe:
 
     async def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
         try:
-            response = await self.client.system_one(
-                state=state,
-                questions={name: _to_typesafe(q) for name, q in questions.items()},
-                model=self.model,
-            )
+            response = await self.client.system_one(**_request(state, questions, self.model))
         except ts.TypeSafeError as error:
             raise _error(error) from error
         return _decode(questions, response)
+
+
+IMAGES_HEADER = "TypeSafe-Danger-Zone-Images"
+
+
+def _request(state: State, questions: Mapping[str, Question], model: str) -> dict[str, Any]:
+    """The ``system_one`` arguments. Images go in ``assets`` keyed by their placeholder
+    (the SDK sends them as multipart file parts), with the images header turned on."""
+    images = collect(state, dict(questions))  # raises ImageError (a ValueError) before sending
+    request: dict[str, Any] = {
+        "state": replace_images(state),
+        "questions": {name: _to_typesafe(q) for name, q in questions.items()},
+        "model": model,
+    }
+    if images or any(isinstance(q, Box) for q in questions.values()):
+        request["assets"] = {ph: ts.Image(image.data) for ph, (image, _) in images.items()}
+        request["extra_headers"] = {IMAGES_HEADER: "true"}
+    return request
 
 
 def _error(error: ts.TypeSafeError) -> ProviderError:
@@ -72,7 +90,7 @@ def _decode(questions: Mapping[str, Question], response: ts.SystemOneResponse) -
         raise ProviderError("TypeSafe", f"unexpected response: {error!r}") from error
 
 
-def _to_typesafe(question: Question) -> ts.Noul | ts.Choice | ts.Score:
+def _to_typesafe(question: Question) -> ts.Noul | ts.Choice | ts.Score | ts.Box:
     match question:
         case Boolean():
             described = question.true is not None or question.false is not None
@@ -82,6 +100,8 @@ def _to_typesafe(question: Question) -> ts.Noul | ts.Choice | ts.Score:
             return ts.Choice(instructions=question.instructions, criteria=dict(question.options))
         case Score():
             return ts.Score(instructions=question.instructions, criteria=list(question.levels))
+        case Box():
+            return ts.Box(instructions=question.instructions)
 
 
 def _from_typesafe(question: Question, answer: ts.Answer, call: Call) -> Answer:
@@ -98,3 +118,7 @@ def _from_typesafe(question: Question, answer: ts.Answer, call: Call) -> Answer:
             # TypeSafe keys probabilities by level index (0, 1, 2...); we key them by level text.
             probabilities = {level: answer.probabilities[i] for i, level in enumerate(question.levels)}
             return make_answer(question, answer.score, probabilities, answer, call=call)
+        case Box():
+            b = answer.box
+            return make_answer(question, Region(b.top, b.bottom, b.left, b.right), {}, answer,
+                               call=call, confidence=answer.confidence)

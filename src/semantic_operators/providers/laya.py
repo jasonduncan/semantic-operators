@@ -24,7 +24,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..errors import ProviderError
-from ..types import (Answer, Boolean, Call, Choice, Question, Score, State, complement, make_answer,
+from ..images import collect
+from ..types import (Answer, Boolean, Box, Call, Choice, Question, Score, State, complement, make_answer,
                      token_count)
 
 
@@ -34,6 +35,8 @@ class Laya:
         self._lock = threading.Lock()
 
     def ask(self, state: State, questions: Mapping[str, Question]) -> dict[str, Answer]:
+        if collect(state, dict(questions)) or any(isinstance(q, Box) for q in questions.values()):
+            raise ProviderError("Laya", "images and Box questions are not supported")
         request = {name: _to_laya(q) for name, q in questions.items()}
         try:
             with self._lock:

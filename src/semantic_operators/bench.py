@@ -108,6 +108,8 @@ def decide(question: Question, answer: Answer) -> Decision:
             return answer.value
         case Score():
             return int(float(answer.value) + 0.5)
+        case _:
+            raise ValueError("Box questions can't be benchmarked yet (no discrete decision)")
 
 
 def run(provider: Provider, questions: Mapping[str, Question], cases: Sequence[Case],
