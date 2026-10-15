@@ -155,7 +155,7 @@ def test_images_are_sent_as_multipart_assets_with_the_header():
                         model="jev-1.14.0")
     answers = provider.ask({"photo": photo}, {
         "mug": Box("the coffee mug in `photo`"),
-        "brand": Choice("Which brand is on the mug?", {"a": f"this logo: {logo}", "b": "other"}),
+        "brand": Choice("Which brand?", {"a": f"this logo: {logo}", "b": "other"}),
     })
     assert answers["mug"].value == Region(0.25, 0.82, 0.44, 0.84)
     assert answers["mug"].confidence == 0.92
@@ -168,6 +168,13 @@ def test_images_are_sent_as_multipart_assets_with_the_header():
     assert body["questions"]["mug"] == {"type": "box", "instructions": "the coffee mug in `photo`"}
     assert body["questions"]["brand"]["criteria"]["a"] == f"this logo: {logo.placeholder}"
     assert set(body["assets"]) == {photo.placeholder, logo.placeholder}
+    # The same bytes libsemop sends (its test_typesafe.cpp checks this exact string).
+    expected = ('{"state":{"photo":"P"},"model":"jev-1.14.0","questions":{"mug":{"type":"box",'
+                '"instructions":"the coffee mug in `photo`"},"brand":{"type":"choice","instructions":'
+                '"Which brand?","criteria":{"a":"this logo: L","b":"other"}}},"assets":{"P":{"type":'
+                '"image","part":"asset-0"},"L":{"type":"image","part":"asset-1"}}}')
+    assert parts["request"].decode() == expected.replace('"P"', f'"{photo}"').replace(
+        ": L", f": {logo}").replace('"L"', f'"{logo}"')
     for image in (photo, logo):
         part = body["assets"][image.placeholder]["part"]
         assert parts[part] == image.data
