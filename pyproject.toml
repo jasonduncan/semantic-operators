@@ -26,7 +26,7 @@ Source = "https://github.com/jasonduncan/semantic-operators"
 Issues = "https://github.com/jasonduncan/semantic-operators/issues"
 
 [project.optional-dependencies]
-typesafe = ["typesafe-sdk>=0.7.1"]
+typesafe = ["typesafe-sdk>=0.7.5"]
 laya = ["laya>=0.3.20"]
 mcp = ["mcp>=2.2,<3"]
 

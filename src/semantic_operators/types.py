@@ -8,7 +8,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-# What a question is asked about: text, or JSON-shaped data.
+# What a question is asked about: text, or JSON-shaped data. Any value (or the whole
+# state) may be an ``images.Image``; see images.py.
 State = str | dict[str, Any] | list[Any]
 
 
@@ -74,7 +75,69 @@ class Score:
         _check_labels(self.levels, "levels")  # levels become probability keys
 
 
-Question = Boolean | Choice | Score
+@dataclass(frozen=True)
+class Box:
+    """Locate one thing in an image: the answer's ``value`` is a ``Region``.
+
+    Needs an image in the request, and a model that supports it (TypeSafe:
+    ``jev-1.14.0`` / ``jev-preview`` only). There is no "not found" answer: the
+    model always returns some box, so pair it with a presence check (``Boolean``),
+    or use ``semantic_operators.locate``, which does. One box per question: ask
+    one Box per target.
+    """
+
+    instructions: str
+    min_confidence: float = field(default=0.0, kw_only=True)
+
+    def __post_init__(self) -> None:
+        _check_question(self.instructions, self.min_confidence)
+
+
+@dataclass(frozen=True)
+class Region:
+    """A box's edges as fractions (0 to 1) of the image's height (top, bottom) and width (left, right)."""
+
+    top: float
+    bottom: float
+    left: float
+    right: float
+
+    def __post_init__(self) -> None:
+        edges = (self.top, self.bottom, self.left, self.right)
+        if not all(_is_number(e) and 0 <= e <= 1 for e in edges):
+            raise ValueError(f"box edges must be numbers from 0 to 1, got {edges!r}")
+        if self.top > self.bottom or self.left > self.right:
+            raise ValueError(f"box edges are out of order: {self!r}")
+
+    @property
+    def width(self) -> float:
+        return self.right - self.left
+
+    @property
+    def height(self) -> float:
+        return self.bottom - self.top
+
+    @property
+    def center(self) -> tuple[float, float]:
+        """(x, y) as fractions of width and height."""
+        return ((self.left + self.right) / 2, (self.top + self.bottom) / 2)
+
+    def padded(self, fraction: float) -> "Region":
+        """Grown by ``fraction`` of its own size on every side, clipped to the image.
+
+        Boxes can be tight or cut a little off; padding before cropping is the cheap fix.
+        """
+        dx, dy = self.width * fraction, self.height * fraction
+        return Region(max(0.0, self.top - dy), min(1.0, self.bottom + dy),
+                      max(0.0, self.left - dx), min(1.0, self.right + dx))
+
+    def pixels(self, width: int, height: int) -> tuple[int, int, int, int]:
+        """(left, top, right, bottom) in pixels, e.g. for ``PIL.Image.crop``."""
+        return (round(self.left * width), round(self.top * height),
+                round(self.right * width), round(self.bottom * height))
+
+
+Question = Boolean | Choice | Score | Box
 
 
 @dataclass(frozen=True)
@@ -101,6 +164,8 @@ class Answer:
                in the same order as the question's options.
     - Score:   ``value`` is the expected score (a float, may fall between levels);
                ``probabilities`` is keyed by level text, in level order.
+    - Box:     ``value`` is a ``Region``; ``probabilities`` is empty, and ``confidence``
+               is the provider's confidence in the box (0 when it reports none).
 
     ``value`` is ``None`` when the answer is undecided: the model was split evenly
     between answers, or its ``confidence`` was below the question's ``min_confidence``.
@@ -115,7 +180,7 @@ class Answer:
     ``call`` records which model answered and what the call used (see ``Call``).
     """
 
-    value: bool | str | float | None
+    value: bool | str | float | Region | None
     probabilities: dict[str, float]
     confidence: float
     raw: Any = field(default=None, repr=False)
@@ -132,8 +197,9 @@ class Answer:
 ROUNDING = 0.005
 
 
-def make_answer(question: Question, value: bool | str | float, probabilities: dict[str, float],
-                raw: Any = None, *, call: Call | None = None) -> Answer:
+def make_answer(question: Question, value: bool | str | float | Region,
+                probabilities: dict[str, float], raw: Any = None, *, call: Call | None = None,
+                confidence: float | None = None) -> Answer:
     """Build an ``Answer`` from a provider's value and probabilities.
 
     Providers call this so every provider handles ties and ``min_confidence`` the same way.
@@ -141,7 +207,12 @@ def make_answer(question: Question, value: bool | str | float, probabilities: di
     question's outcomes, be finite, lie in [0, 1] and sum to 1, and the value must agree
     with them. Malformed output raises ValueError, which providers turn into ProviderError,
     so a broken response never looks like a confident answer.
+
+    ``confidence`` is for Box answers only (they have no probabilities): the provider's
+    confidence in the box, or ``None`` when it reports none (treated as 0).
     """
+    if not isinstance(question, Box) and confidence is not None:
+        raise ValueError("confidence is given only for Box answers")
     match question:
         case Boolean():
             _check_distribution(probabilities, ["true", "false"])
@@ -170,6 +241,15 @@ def make_answer(question: Question, value: bool | str | float, probabilities: di
                 raise ValueError(f"Score value {value!r} disagrees with its probabilities")
             confidence = probabilities[question.levels[min(int(value + 0.5), highest)]]
             tied = False  # an expected score is always a single number
+        case Box():
+            if not isinstance(value, Region):
+                raise ValueError(f"Box value {value!r} is not a Region")
+            if probabilities:
+                raise ValueError("Box answers have no probabilities")
+            confidence = 0.0 if confidence is None else confidence
+            if not _is_number(confidence) or not 0 <= confidence <= 1:
+                raise ValueError(f"Box confidence {confidence!r} is not from 0 to 1")
+            tied = False
     if tied or confidence < question.min_confidence:
         return Answer(None, probabilities, confidence, raw, call=call)
     return Answer(value, probabilities, confidence, raw, call=call)

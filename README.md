@@ -121,6 +121,59 @@ its call reported: `answers["department"].call` is
 `Call(provider='TypeSafe', model='jev-1.13.0', input_tokens=291, output_tokens=20)`.
 All answers from one call share it; anything unreported is `None`.
 
+## Images
+
+TypeSafe accepts images (PNG/JPEG stills) anywhere text goes: in the state, in
+instructions, and in option or level descriptions. It's **"Dreamer-ready"** on TypeSafe's
+side (not production-ready: limits and accuracy may change). Laya doesn't support images.
+
+```python
+from semantic_operators import Boolean, Box, Choice, Image, frames, locate
+
+photo = Image.from_path("kitchen.jpg")     # or Image(bytes), Image.from_base64(text)
+logo = Image.from_path("logo.png")
+provider = TypeSafe(client, model="jev-1.14.0")
+
+answers = provider.ask({"photo": photo}, {
+    "has_logo": Boolean(f"Does `photo` show this logo: {logo}?"),
+    "room": Choice("Which room is `photo`?", {"kitchen": None, "office": None, "other": None}),
+    "mug": Box("the coffee mug in `photo`"),   # jev-1.14 only
+})
+answers["mug"].value       # Region(top=.25, bottom=.82, left=.44, right=.84), fractions of the image
+answers["mug"].confidence  # the model's confidence in the box
+```
+
+- **Placing images.** Put an `Image` as a value (or the whole state), or inside any text
+  with `str(image)` / an f-string. Each image is sent once, as a multipart file part in
+  the request's `assets`, keyed by its placeholder (`image-<uuid>`). Every request with an
+  image or a Box question carries `TypeSafe-Danger-Zone-Images: true`. Keep the `Image`
+  alive until the call returns.
+- **Checked before sending.** `Image(...)` raises `ImageError` (a `ValueError`) unless it's
+  PNG or JPEG (no animated PNG), at most 16 MiB, each side 256-1568 px, and the area
+  78,400-2,458,624 px. Images are rejected, not resized. A request whose images total over
+  32 MiB, counting each use, raises before anything is sent. EXIF orientation is ignored
+  by TypeSafe, so an EXIF-rotated JPEG (and a non-baseline JPEG) gives an `ImageWarning`:
+  rotate the pixels yourself.
+- **Box** returns one `Region` per question (`top`/`bottom`/`left`/`right` as 0-1 fractions,
+  `.pixels(w, h)`, `.padded(0.1)`, `.center`) with a `confidence`, and has **no "not found"**:
+  it always returns a box. Use `locate`, which asks a presence `Boolean` alongside it in one
+  call and only gives a region when the thing is there:
+
+  ```python
+  mug = locate(provider, {"photo": photo}, "a coffee mug", where="`photo`")
+  mug.found    # True, False, or None (unsure, below min_presence)
+  mug.region   # a Region only when found is True
+  ```
+
+  There's no recommended box-confidence threshold yet; pad before cropping, or re-ask on a crop.
+- **Several frames** (e.g. from video, which isn't accepted) go in the state as an array,
+  oldest first: `{"frames": frames([f0, f1, f2], seconds_ago=[4, 2, 0])}`, then ask
+  "Did the door open during `frames`?" or point at one with `` `frames[2].frame` ``.
+- Images are billed as input tokens. Benchmarks, the `semop` JSON format, and MCP don't take
+  images or Box yet.
+
+See [`examples/images.py`](examples/images.py).
+
 ## Operators
 
 An **operator** is a semantic judgment defined once, with a name, and used anywhere:
